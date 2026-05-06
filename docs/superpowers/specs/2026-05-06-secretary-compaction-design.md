@@ -22,7 +22,10 @@ Extend `config.compaction` with a strategy field and secretary-specific model se
     "auto": true,
     "strategy": "secretary",
     "secretary": {
-      "model": "anthropic/claude-haiku-4-5"
+      "model": "anthropic/claude-haiku-4-5",
+      "diff_token_threshold": 20000,
+      "diff_turn_threshold": 8,
+      "context_token_threshold": 120000
     }
   }
 }
@@ -38,6 +41,9 @@ Defaults:
 - `compaction.auto`: existing default behavior.
 - `compaction.strategy`: `"classic"` when omitted.
 - `compaction.secretary.model`: use the existing configured compaction agent/model fallback when omitted.
+- `compaction.secretary.diff_token_threshold`: implementation default for `p` when omitted.
+- `compaction.secretary.diff_turn_threshold`: implementation default for `q` when omitted.
+- `compaction.secretary.context_token_threshold`: existing overflow/context replacement logic for `r` when omitted.
 
 Secretary model configuration:
 
@@ -46,6 +52,15 @@ Secretary model configuration:
 - If the value is omitted, Secretary Action uses the same model resolution path as the current compaction agent.
 - If the configured secretary model is unavailable, Secretary Action follows the normal failure policy. It records the error, retries up to three times for the current trigger, and does not block the main agent.
 - Compact Action uses the active session/main model for context capacity checks unless a secretary-specific compact target model is added later. The secretary model is only for summary generation.
+
+Threshold configuration:
+
+- `compaction.secretary.diff_token_threshold` is the original `p`: trigger Secretary Action when `getTokenCount(New Diff)` exceeds this token count.
+- `compaction.secretary.diff_turn_threshold` is the original `q`: trigger Secretary Action when `getTurnCount(New Diff)` exceeds this turn count.
+- `compaction.secretary.context_token_threshold` is the original `r`: trigger Compact Action when `getTokenCount(Main Context)` exceeds this token count.
+- These fields are optional positive integers.
+- `diff_token_threshold` should be estimated against the secretary summary model, because that model receives `New Diff`.
+- `context_token_threshold` should be estimated against the active session/main model, because that model receives the compacted continuation context.
 
 Existing config values such as `prune`, `tail_turns`, `preserve_recent_tokens`, and `reserved` remain valid. Secretary compaction should reuse existing token budgeting settings where they fit, and only add secretary-specific settings when the current config cannot express the behavior.
 
@@ -101,8 +116,8 @@ Secretary Action is checked only after a complete assistant response has been wr
 
 Trigger when either condition is true:
 
-- `getTokenCount(New Diff) > p`.
-- `getTurnCount(New Diff) > q`.
+- `getTokenCount(New Diff) > compaction.secretary.diff_token_threshold`.
+- `getTurnCount(New Diff) > compaction.secretary.diff_turn_threshold`.
 
 The action must freeze a snapshot at trigger time:
 
@@ -177,7 +192,7 @@ If the secretary model keeps failing, `New Diff` is allowed to grow. This is acc
 
 ## Compact Action
 
-Compact Action is checked at model-send boundaries for tool results and user prompts. It triggers when the main context exceeds the configured replacement threshold `r`.
+Compact Action is checked at model-send boundaries for tool results and user prompts. It triggers when the main context exceeds `compaction.secretary.context_token_threshold`, or the existing classic overflow threshold when that field is omitted.
 
 When the strategy is classic, keep existing compact behavior.
 
@@ -234,12 +249,15 @@ The command opens a select dialog with:
 - `Classic auto compaction`: sets `compaction.auto = true` and `compaction.strategy = "classic"`.
 - `Secretary auto compaction`: sets `compaction.auto = true` and `compaction.strategy = "secretary"`.
 - `Secretary model`: opens a model picker and writes `compaction.secretary.model`.
+- `Secretary thresholds`: opens threshold inputs for `diff_token_threshold`, `diff_turn_threshold`, and `context_token_threshold`.
 - `Disable auto compaction`: sets `compaction.auto = false` and leaves or displays the current strategy.
 - `View secretary status`: opens a status view/dialog for the current session.
 
 Selecting `Secretary auto compaction` writes workspace config through the existing config update API and immediately activates secretary behavior for the current session from the current message boundary forward.
 
 Selecting `Secretary model` should use the existing provider/model selection UI if practical. If reusing that UI is too invasive for the first version, it may use a text prompt that accepts the same `provider/model` string format as config.
+
+Selecting `Secretary thresholds` may use numeric prompt dialogs in the first version. The dialog should show each threshold's current effective value and map labels back to the original design terms: `p` for diff token threshold, `q` for diff turn threshold, and `r` for main context token threshold.
 
 Selecting `Classic auto compaction` writes workspace config and stops future secretary triggers in the current session.
 
@@ -313,6 +331,7 @@ Unit tests should cover:
 
 - Config parsing for omitted, classic, secretary, and disabled auto compaction states.
 - Secretary model config parsing and fallback behavior.
+- Secretary threshold config parsing, defaults, and effective value resolution for `p/q/r`.
 - Turn counting for user/assistant, tool/assistant, adjacent same-role heads, tail user/tool messages, and split assistant messages.
 - Secretary snapshot freezing while new messages arrive.
 - Successful Secretary Action state transition.
@@ -329,6 +348,7 @@ TUI tests should cover:
 - `Compaction settings` appears in the command palette.
 - Selecting `Secretary auto compaction` calls config update with `compaction.auto = true` and `compaction.strategy = "secretary"`.
 - Selecting `Secretary model` writes `compaction.secretary.model`.
+- Selecting `Secretary thresholds` writes the three secretary threshold fields.
 - Selecting `Classic auto compaction` calls config update with `compaction.auto = true` and `compaction.strategy = "classic"`.
 - Selecting `Disable auto compaction` calls config update with `compaction.auto = false`.
 - Secretary sidebar default status renders without debug fields.
@@ -349,4 +369,3 @@ These are implementation details to resolve while planning, not product behavior
 - Whether secretary state lives as a dedicated table, session metadata, or synthetic part/event projection.
 - Exact prompt text for the secretary system prompt and summary prompt.
 - Exact debug flag name for sidebar details.
-- Exact config names for thresholds `p`, `q`, and `r` if existing compaction thresholds cannot express them clearly.
