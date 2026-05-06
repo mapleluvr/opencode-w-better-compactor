@@ -14,13 +14,16 @@ Build an opencode branch that supports `secretary` as a first-class compaction s
 
 ## Configuration
 
-Extend `config.compaction` with a strategy field:
+Extend `config.compaction` with a strategy field and secretary-specific model settings:
 
 ```json
 {
   "compaction": {
     "auto": true,
-    "strategy": "secretary"
+    "strategy": "secretary",
+    "secretary": {
+      "model": "anthropic/claude-haiku-4-5"
+    }
   }
 }
 ```
@@ -34,6 +37,15 @@ Defaults:
 
 - `compaction.auto`: existing default behavior.
 - `compaction.strategy`: `"classic"` when omitted.
+- `compaction.secretary.model`: use the existing configured compaction agent/model fallback when omitted.
+
+Secretary model configuration:
+
+- `compaction.secretary.model` selects the model used for Secretary Action summaries.
+- The value should follow the existing opencode model reference format used in config, such as `provider/model`.
+- If the value is omitted, Secretary Action uses the same model resolution path as the current compaction agent.
+- If the configured secretary model is unavailable, Secretary Action follows the normal failure policy. It records the error, retries up to three times for the current trigger, and does not block the main agent.
+- Compact Action uses the active session/main model for context capacity checks unless a secretary-specific compact target model is added later. The secretary model is only for summary generation.
 
 Existing config values such as `prune`, `tail_turns`, `preserve_recent_tokens`, and `reserved` remain valid. Secretary compaction should reuse existing token budgeting settings where they fit, and only add secretary-specific settings when the current config cannot express the behavior.
 
@@ -221,10 +233,13 @@ The command opens a select dialog with:
 
 - `Classic auto compaction`: sets `compaction.auto = true` and `compaction.strategy = "classic"`.
 - `Secretary auto compaction`: sets `compaction.auto = true` and `compaction.strategy = "secretary"`.
+- `Secretary model`: opens a model picker and writes `compaction.secretary.model`.
 - `Disable auto compaction`: sets `compaction.auto = false` and leaves or displays the current strategy.
 - `View secretary status`: opens a status view/dialog for the current session.
 
 Selecting `Secretary auto compaction` writes workspace config through the existing config update API and immediately activates secretary behavior for the current session from the current message boundary forward.
+
+Selecting `Secretary model` should use the existing provider/model selection UI if practical. If reusing that UI is too invasive for the first version, it may use a text prompt that accepts the same `provider/model` string format as config.
 
 Selecting `Classic auto compaction` writes workspace config and stops future secretary triggers in the current session.
 
@@ -279,6 +294,7 @@ Events should include session ID and compact/secretary status. Debug-only fields
 Likely modules:
 
 - `packages/opencode/src/config/config.ts`: add `compaction.strategy` and any required secretary-specific config.
+- `packages/opencode/src/agent/agent.ts`: ensure secretary model resolution can override or fall back to the existing compaction agent model.
 - `packages/opencode/src/session/compaction.ts`: keep classic compaction and dispatch to secretary strategy where appropriate.
 - `packages/opencode/src/session/prompt.ts`: trigger Secretary Action after completed responses and invoke compact behavior at model-send boundaries.
 - `packages/opencode/src/session/processor.ts`: expose or reuse response completion/tool-result boundaries as needed.
@@ -296,6 +312,7 @@ Likely modules:
 Unit tests should cover:
 
 - Config parsing for omitted, classic, secretary, and disabled auto compaction states.
+- Secretary model config parsing and fallback behavior.
 - Turn counting for user/assistant, tool/assistant, adjacent same-role heads, tail user/tool messages, and split assistant messages.
 - Secretary snapshot freezing while new messages arrive.
 - Successful Secretary Action state transition.
@@ -311,6 +328,7 @@ TUI tests should cover:
 - `/compaction` appears in slash autocomplete.
 - `Compaction settings` appears in the command palette.
 - Selecting `Secretary auto compaction` calls config update with `compaction.auto = true` and `compaction.strategy = "secretary"`.
+- Selecting `Secretary model` writes `compaction.secretary.model`.
 - Selecting `Classic auto compaction` calls config update with `compaction.auto = true` and `compaction.strategy = "classic"`.
 - Selecting `Disable auto compaction` calls config update with `compaction.auto = false`.
 - Secretary sidebar default status renders without debug fields.
