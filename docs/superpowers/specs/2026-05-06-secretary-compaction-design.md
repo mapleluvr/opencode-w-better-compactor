@@ -73,6 +73,22 @@ Secretary compaction splits the old "compact when full" behavior into two action
 
 The main agent continues normally while secretary summaries run. Compact may block the next model request when it needs a running secretary action to finish.
 
+## Architecture Decision: Secretary Compact Orchestrator
+
+Secretary compact is a cross-session transition, not a variant of the existing same-session classic compaction pipeline. The implementation should add a dedicated secretary compact orchestrator instead of trying to reuse the classic `SessionCompaction.create()` plus `SessionCompaction.process()` flow for secretary transitions.
+
+The orchestrator owns the secretary-specific workflow:
+
+- Freeze and run background Secretary Action snapshots.
+- Wait for, or force, a usable secretary summary when Compact Action needs one.
+- Build `Latest Summary + Previous Diff + New Diff` payloads.
+- Trim only `Previous Diff` when the compact payload is too large.
+- Create the continuation session.
+- Send the compact payload into that new session.
+- Emit status events, including the new session ID when a secretary compact switches sessions.
+
+Classic compaction should remain in the existing same-session flow. `packages/opencode/src/session/compaction.ts` should act as the strategy facade: it keeps the classic behavior unchanged and delegates secretary strategy work to the secretary compact orchestrator. This separation is required so secretary compact does not accidentally hide or rewrite the old session through `MessageV2.filterCompacted()` semantics.
+
 ## State
 
 Secretary state is maintained per session. The implementation should store message IDs or stable message boundaries rather than duplicating full diff payloads wherever practical.
@@ -313,6 +329,8 @@ Likely modules:
 
 - `packages/opencode/src/config/config.ts`: add `compaction.strategy` and any required secretary-specific config.
 - `packages/opencode/src/agent/agent.ts`: ensure secretary model resolution can override or fall back to the existing compaction agent model.
+- `packages/opencode/src/session/secretary-compaction.ts`: add the secretary compact orchestrator for background Secretary Action and cross-session Secretary Compact Action workflows.
+- `packages/opencode/src/session/secretary-state.ts`: store and CAS-update per-session secretary state, backed by dedicated session storage.
 - `packages/opencode/src/session/compaction.ts`: keep classic compaction and dispatch to secretary strategy where appropriate.
 - `packages/opencode/src/session/prompt.ts`: trigger Secretary Action after completed responses and invoke compact behavior at model-send boundaries.
 - `packages/opencode/src/session/processor.ts`: expose or reuse response completion/tool-result boundaries as needed.
