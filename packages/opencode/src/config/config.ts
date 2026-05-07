@@ -236,6 +236,8 @@ export const Info = Schema.Struct({
           diff_token_threshold: Schema.optional(PositiveInt),
           diff_turn_threshold: Schema.optional(PositiveInt),
           context_token_threshold: Schema.optional(PositiveInt),
+          compact_wait_timeout: Schema.optional(PositiveInt),
+          debug: Schema.optional(Schema.Boolean),
         }),
       ),
       prune: Schema.optional(Schema.Boolean).annotate({

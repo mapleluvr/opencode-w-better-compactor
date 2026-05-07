@@ -603,6 +603,7 @@ describe("compaction config", () => {
             diff_token_threshold: 20000,
             diff_turn_threshold: 8,
             context_token_threshold: 120000,
+            compact_wait_timeout: 60000,
           },
         },
       },
@@ -617,6 +618,7 @@ describe("compaction config", () => {
         diff_token_threshold: 20000,
         diff_turn_threshold: 8,
         context_token_threshold: 120000,
+        compact_wait_timeout: 60000,
       },
     })
   })
@@ -648,8 +650,42 @@ describe("compaction config", () => {
     expect(config.compaction && "strategy" in config.compaction).toBe(false)
   })
 
+  test("parses secretary debug flag", () => {
+    const config = ConfigParse.effectSchema(
+      Config.Info,
+      {
+        compaction: {
+          strategy: "secretary",
+          secretary: {
+            debug: true,
+          },
+        },
+      },
+      "test",
+    )
+
+    expect(config.compaction?.secretary?.debug).toBe(true)
+  })
+
+  test("omitted debug flag stays false", () => {
+    const config = ConfigParse.effectSchema(
+      Config.Info,
+      {
+        compaction: {
+          strategy: "secretary",
+          secretary: {
+            model: "anthropic/claude-haiku-4-5",
+          },
+        },
+      },
+      "test",
+    )
+
+    expect(config.compaction?.secretary?.debug).toBeUndefined()
+  })
+
   test("rejects non-positive secretary thresholds", () => {
-    ;(["diff_token_threshold", "diff_turn_threshold", "context_token_threshold"] as const).flatMap((field) =>
+    ;(["diff_token_threshold", "diff_turn_threshold", "context_token_threshold", "compact_wait_timeout"] as const).flatMap((field) =>
       [0, -1].map((value) =>
         expect(() =>
           ConfigParse.effectSchema(

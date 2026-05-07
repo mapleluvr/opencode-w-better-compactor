@@ -103,9 +103,9 @@ const getOrInit: Interface["getOrInit"] = Effect.fn("SecretaryState.getOrInit")(
   return yield* Effect.sync(() =>
     Database.transaction((db) => {
       db.insert(SecretaryStateTable).values(toRow(input.sessionID, 1, initial)).onConflictDoNothing().run()
-      return fromRow(
-        db.select().from(SecretaryStateTable).where(eq(SecretaryStateTable.session_id, input.sessionID)).get()!,
-      )
+      const row = db.select().from(SecretaryStateTable).where(eq(SecretaryStateTable.session_id, input.sessionID)).get()
+      if (!row) throw new Database.NotFoundError({ message: `Secretary state not found after init: ${input.sessionID}` })
+      return fromRow(row)
     }),
   )
 })

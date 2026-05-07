@@ -4,10 +4,13 @@ import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect"
 import * as Stream from "effect/Stream"
 import z from "zod"
 import { Bus } from "../../src/bus"
+import { SessionEvent } from "@/v2/session-event"
 import { Config } from "@/config/config"
 import { Agent } from "../../src/agent/agent"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
+import { SecretaryCompaction } from "../../src/session/secretary-compaction"
+import { SecretaryState } from "../../src/session/secretary-state"
 import { Token } from "@/util/token"
 import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
@@ -34,6 +37,10 @@ void Log.init({ print: false })
 
 function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
   return Effect.runPromise(fx.pipe(Effect.provide(SessionNs.defaultLayer)))
+}
+
+function runState<A>(fx: Effect.Effect<A, never, SecretaryState.Service>) {
+  return Effect.runPromise(fx.pipe(Effect.provide(SecretaryState.defaultLayer)))
 }
 
 const svc = {
@@ -232,6 +239,16 @@ function runtime(
       Layer.provide(plugin),
       Layer.provide(bus),
       Layer.provide(config),
+      Layer.provide(
+        Layer.succeed(
+          SecretaryCompaction.Service,
+          SecretaryCompaction.Service.of({
+            afterAssistantComplete: () => Effect.void,
+            beforeModelSend: () => Effect.succeed({ type: "continue" as const }),
+            manualCompact: () => Effect.succeed({ type: "continue" as const }),
+          }),
+        ),
+      ),
     ),
   )
 }
@@ -243,6 +260,14 @@ const deps = Layer.mergeAll(
   Plugin.defaultLayer,
   Bus.layer,
   Config.defaultLayer,
+  Layer.succeed(
+    SecretaryCompaction.Service,
+    SecretaryCompaction.Service.of({
+      afterAssistantComplete: () => Effect.void,
+      beforeModelSend: () => Effect.succeed({ type: "continue" as const }),
+      manualCompact: () => Effect.succeed({ type: "continue" as const }),
+    }),
+  ),
 )
 
 const env = Layer.mergeAll(
@@ -291,6 +316,16 @@ function liveRuntime(layer: Layer.Layer<LLM.Service>, provider = ProviderTest.fa
       Layer.provide(status),
       Layer.provide(bus),
       Layer.provide(config),
+      Layer.provide(
+        Layer.succeed(
+          SecretaryCompaction.Service,
+          SecretaryCompaction.Service.of({
+            afterAssistantComplete: () => Effect.void,
+            beforeModelSend: () => Effect.succeed({ type: "continue" as const }),
+            manualCompact: () => Effect.succeed({ type: "continue" as const }),
+          }),
+        ),
+      ),
     ),
   )
 }
@@ -360,6 +395,35 @@ function defer() {
     resolve = done
   })
   return { promise, resolve }
+}
+
+function deferTyped<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function secretaryRuntime(
+  llmStub: ReturnType<typeof llm>,
+  provider = wide(),
+  config: Layer.Layer<Config.Service> = cfg(),
+) {
+  const bus = Bus.layer
+  return ManagedRuntime.make(
+    Layer.mergeAll(SecretaryCompaction.layer, bus).pipe(
+      Layer.provide(SecretaryState.layer),
+      Layer.provide(llmStub.layer),
+      Layer.provide(provider.layer),
+      Layer.provide(SessionNs.defaultLayer),
+      Layer.provide(layer("continue")),
+      Layer.provide(Agent.defaultLayer),
+      Layer.provide(Plugin.defaultLayer),
+      Layer.provide(bus),
+      Layer.provide(config),
+    ),
+  )
 }
 
 function plugin(ready: ReturnType<typeof defer>) {
@@ -473,7 +537,7 @@ describe("session.compaction.isOverflow", () => {
   // Open PRs: #6875, #12924
 
   it.live(
-    "BUG: no headroom when limit.input is set — compaction should trigger near boundary but does not",
+    "BUG: no headroom when limit.input is set �?compaction should trigger near boundary but does not",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
@@ -482,14 +546,14 @@ describe("session.compaction.isOverflow", () => {
 
         // We've used 198K tokens total. Only 2K under the input limit.
         // On the next turn, the full conversation (198K) becomes input,
-        // plus the model needs room to generate output — this WILL overflow.
+        // plus the model needs room to generate output �?this WILL overflow.
         const tokens = { input: 180_000, output: 15_000, reasoning: 0, cache: { read: 3_000, write: 0 } }
         // count = 180K + 3K + 15K = 198K
         // usable = limit.input = 200K (no output subtracted!)
-        // 198K > 200K = false → no compaction triggered
+        // 198K > 200K = false �?no compaction triggered
 
-        // WITHOUT limit.input: usable = 200K - 32K = 168K, and 198K > 168K = true ✓
-        // WITH limit.input: usable = 200K, and 198K > 200K = false ✗
+        // WITHOUT limit.input: usable = 200K - 32K = 168K, and 198K > 168K = true �?
+        // WITH limit.input: usable = 200K, and 198K > 200K = false �?
 
         // With 198K used and only 2K headroom, the next turn will overflow.
         // Compaction MUST trigger here.
@@ -503,23 +567,23 @@ describe("session.compaction.isOverflow", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
-        // Same model but without limit.input — uses context - output instead
+        // Same model but without limit.input �?uses context - output instead
         const model = createModel({ context: 200_000, output: 32_000 })
 
         // Same token usage as above
         const tokens = { input: 180_000, output: 15_000, reasoning: 0, cache: { read: 3_000, write: 0 } }
         // count = 198K
         // usable = context - output = 200K - 32K = 168K
-        // 198K > 168K = true → compaction correctly triggered
+        // 198K > 168K = true �?compaction correctly triggered
 
         const result = yield* compact.isOverflow({ tokens, model })
-        expect(result).toBe(true) // ← Correct: headroom is reserved
+        expect(result).toBe(true) // �?Correct: headroom is reserved
       }),
     ),
   )
 
   it.live(
-    "BUG: asymmetry — limit.input model allows 30K more usage before compaction than equivalent model without it",
+    "BUG: asymmetry �?limit.input model allows 30K more usage before compaction than equivalent model without it",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
@@ -527,13 +591,13 @@ describe("session.compaction.isOverflow", () => {
         const withInputLimit = createModel({ context: 200_000, input: 200_000, output: 32_000 })
         const withoutInputLimit = createModel({ context: 200_000, output: 32_000 })
 
-        // 170K total tokens — well above context-output (168K) but below input limit (200K)
+        // 170K total tokens �?well above context-output (168K) but below input limit (200K)
         const tokens = { input: 166_000, output: 10_000, reasoning: 0, cache: { read: 5_000, write: 0 } }
 
         const withLimit = yield* compact.isOverflow({ tokens, model: withInputLimit })
         const withoutLimit = yield* compact.isOverflow({ tokens, model: withoutInputLimit })
 
-        // Both models have identical real capacity — they should agree:
+        // Both models have identical real capacity �?they should agree:
         expect(withLimit).toBe(true) // should compact (170K leaves no room for 32K output)
         expect(withoutLimit).toBe(true) // correctly compacts (170K > 168K)
       }),
@@ -1861,6 +1925,1230 @@ describe("session.compaction.process", () => {
   })
 })
 
+describe("session.compaction.secretary", () => {
+  test("no action when strategy is omitted", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        stub.push(Stream.empty)
+        const rt = secretaryRuntime(stub)
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello")
+          const a = await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: a,
+                user: u,
+              }),
+            ),
+          )
+
+          const state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+            Effect.provide(SecretaryState.defaultLayer),
+            Effect.runPromise,
+          )
+          expect(state).toBeUndefined()
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("no action when strategy is classic", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        stub.push(Stream.make({ type: "start" } as LLM.Event))
+        const rt = secretaryRuntime(stub, wide(), cfg({ strategy: "classic" }))
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello")
+          const a = await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: a,
+                user: u,
+              }),
+            ),
+          )
+
+          const state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+            Effect.provide(SecretaryState.defaultLayer),
+            Effect.runPromise,
+          )
+          expect(state).toBeUndefined()
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("secretary action starts after completed non-summary assistant response", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        stub.push(reply("generated summary"))
+        const rt = secretaryRuntime(stub, wide(), cfg({
+          strategy: "secretary",
+          secretary: { diff_token_threshold: 1, diff_turn_threshold: 1 },
+        }))
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello")
+          const a = await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: a,
+                user: u,
+              }),
+            ),
+          )
+
+          let state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+            Effect.provide(SecretaryState.defaultLayer),
+            Effect.runPromise,
+          )
+          const deadline = Date.now() + 5000
+          while (
+            state?.status !== "idle" &&
+            state?.status !== "error" &&
+            Date.now() < deadline
+          ) {
+            await wait(50)
+            state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+              Effect.provide(SecretaryState.defaultLayer),
+              Effect.runPromise,
+            )
+          }
+          expect(state).toBeDefined()
+          expect(state?.status).toBe("idle")
+          expect(state?.summary).toContain("generated summary")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("first secretary action after enabling mid-session starts at the current user turn", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        let capturedInput: LLM.StreamInput | undefined
+        stub.push((input) => {
+          capturedInput = input
+          return reply("generated summary")(input)
+        })
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { diff_token_threshold: 1, diff_turn_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const oldUser = await user(session.id, "old history should not be summarized")
+          await assistant(session.id, oldUser.id, tmp.path)
+          const currentUser = await user(session.id, "current turn should be summarized")
+          const currentAssistant = await assistant(session.id, currentUser.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: currentAssistant,
+                user: currentUser,
+              }),
+            ),
+          )
+
+          expect(capturedInput).toBeDefined()
+          const prompt = JSON.stringify(capturedInput?.messages)
+          expect(prompt).toContain("current turn should be summarized")
+          expect(prompt).not.toContain("old history should not be summarized")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("skips secretary action for summary assistants", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(stub, wide(), cfg({ strategy: "secretary" }))
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "compact")
+          await SessionCompaction.create({
+            sessionID: session.id,
+            agent: "build",
+            model: ref,
+            auto: false,
+          })
+          const parentID = (await svc.messages({ sessionID: session.id })).at(-1)?.info.id!
+          const summary = await summaryAssistant(session.id, parentID, tmp.path, "old summary")
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: summary,
+                user: u,
+              }),
+            ),
+          )
+
+          const state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+            Effect.provide(SecretaryState.defaultLayer),
+            Effect.runPromise,
+          )
+          expect(state).toBeUndefined()
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("success updates summary fields and advances new_diff_start", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        stub.push(reply("new summary text"))
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { diff_token_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u1 = await user(session.id, "first message")
+          const a1 = await assistant(session.id, u1.id, tmp.path)
+          const u2 = await user(session.id, "second message")
+          const a2 = await assistant(session.id, u2.id, tmp.path)
+          const u3 = await user(session.id, "third message")
+          const a3 = await assistant(session.id, u3.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: a3,
+                user: u3,
+              }),
+            ),
+          )
+
+          let state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+            Effect.provide(SecretaryState.defaultLayer),
+            Effect.runPromise,
+          )
+          const deadline = Date.now() + 5000
+          while (
+            state?.status !== "idle" &&
+            state?.status !== "error" &&
+            Date.now() < deadline
+          ) {
+            await wait(50)
+            state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+              Effect.provide(SecretaryState.defaultLayer),
+              Effect.runPromise,
+            )
+          }
+          expect(state).toBeDefined()
+          expect(state?.status).toBe("idle")
+          expect(state?.summary).toContain("new summary text")
+          expect(state?.summaryUpTo).toBe(a3.id)
+          expect(state?.retryCount).toBe(0)
+          expect(state?.lastSuccessAt).toBeNumber()
+          expect(state?.runningSnapshotStart).toBeUndefined()
+          expect(state?.runningSnapshotEnd).toBeUndefined()
+          expect(state?.lastError).toBeUndefined()
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("three failed attempts set status error clear snapshots and preserve new_diff_start", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        stub.push(Stream.fail(new Error("test error 1")) as any)
+        stub.push(Stream.fail(new Error("test error 2")) as any)
+        stub.push(Stream.fail(new Error("test error 3")) as any)
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { diff_token_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello")
+          const a = await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: a,
+                user: u,
+              }),
+            ),
+          )
+
+          let state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+            Effect.provide(SecretaryState.defaultLayer),
+            Effect.runPromise,
+          )
+          const deadline = Date.now() + 5000
+          while (
+            state?.status !== "error" &&
+            Date.now() < deadline
+          ) {
+            await wait(50)
+            state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+              Effect.provide(SecretaryState.defaultLayer),
+              Effect.runPromise,
+            )
+          }
+          expect(state?.status).toBe("error")
+          expect(state?.retryCount).toBe(3)
+          expect(state?.lastError).toBeDefined()
+          expect(state?.summary).toBeUndefined()
+          expect(state?.runningSnapshotStart).toBeUndefined()
+          expect(state?.runningSnapshotEnd).toBeUndefined()
+          expect(state?.newDiffStart).toBeUndefined()
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("next complete assistant response retries with expanded new diff after failure", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        stub.push(Stream.fail(new Error("test error")) as any)
+        stub.push(Stream.fail(new Error("test error")) as any)
+        stub.push(Stream.fail(new Error("test error")) as any)
+        stub.push(reply("recovered summary"))
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { diff_token_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u1 = await user(session.id, "hello")
+          const a1 = await assistant(session.id, u1.id, tmp.path)
+
+          let msgs = await svc.messages({ sessionID: session.id })
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: a1,
+                user: u1,
+              }),
+            ),
+          )
+
+          let state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+            Effect.provide(SecretaryState.defaultLayer),
+            Effect.runPromise,
+          )
+          const deadline1 = Date.now() + 5000
+          while (state?.status !== "error" && Date.now() < deadline1) {
+            await wait(50)
+            state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+              Effect.provide(SecretaryState.defaultLayer),
+              Effect.runPromise,
+            )
+          }
+          expect(state?.status).toBe("error")
+          expect(state?.retryCount).toBe(3)
+
+          const u2 = await user(session.id, "second")
+          const a2 = await assistant(session.id, u2.id, tmp.path)
+          msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: a2,
+                user: u2,
+              }),
+            ),
+          )
+
+          const deadline2 = Date.now() + 5000
+          while (state?.status !== "idle" && Date.now() < deadline2) {
+            await wait(50)
+            state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+              Effect.provide(SecretaryState.defaultLayer),
+              Effect.runPromise,
+            )
+          }
+          expect(state?.status).toBe("idle")
+          expect(state?.summary).toContain("recovered summary")
+          expect(state?.retryCount).toBe(0)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+})
+
+describe("session.compaction.secretary compact", () => {
+  test("returns continue when context threshold is not exceeded", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 1, diff_token_threshold: 1, diff_turn_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello")
+          await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          expect(result.type).toBe("continue")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("returns continue when strategy is omitted", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(stub)
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello")
+          await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          expect(result.type).toBe("continue")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("forces summary when missing and returns switched", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        stub.push(reply("auto generated summary"))
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 1, diff_token_threshold: 1, diff_turn_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello world")
+          const a = await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          expect(result.type).toBe("switched")
+          if (result.type !== "switched") return
+          expect(result.sessionID).toBeTruthy()
+
+          const state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+            Effect.provide(SecretaryState.defaultLayer),
+            Effect.runPromise,
+          )
+          expect(state?.summary).toContain("auto generated summary")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("awaits running action before compact without fixed bound", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello")
+          await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryState.Service.use((s) =>
+              Effect.gen(function* () {
+                const init = yield* s.getOrInit({ sessionID: session.id, messages: msgs })
+                return yield* s.update({
+                  sessionID: session.id,
+                  update: (st) => ({ ...st, status: "running" as const, summary: "existing summary" }),
+                })
+              }),
+            ).pipe(Effect.provide(SecretaryState.defaultLayer)),
+          )
+
+          const done = deferTyped<{ type: string }>()
+          const run = rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          ).then((r) => done.resolve(r))
+
+          await wait(200)
+
+          await rt.runPromise(
+            SecretaryState.Service.use((s) =>
+              s.update({
+                sessionID: session.id,
+                update: (st) => ({ ...st, status: "idle" as const }),
+              }),
+            ).pipe(Effect.provide(SecretaryState.defaultLayer)),
+          )
+
+          const result = await Promise.race([
+            done.promise,
+            wait(5000).then(() => ({ type: "timeout" as const })),
+          ])
+
+          expect(result.type).toBe("switched")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("returns continue and records an error when compact wait times out", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 1, compact_wait_timeout: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello")
+          await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await runState(
+            SecretaryState.Service.use((s) =>
+              Effect.gen(function* () {
+                yield* s.getOrInit({ sessionID: session.id, messages: msgs })
+                return yield* s.update({
+                  sessionID: session.id,
+                  update: (st) => ({ ...st, status: "running" as const, summary: "existing summary" }),
+                })
+              }),
+            ),
+          )
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          const state = await runState(SecretaryState.Service.use((s) => s.get(session.id)))
+          expect(result.type).toBe("continue")
+          expect(state?.status).toBe("error")
+          expect(state?.lastError).toContain("timed out")
+          expect(state?.runningSnapshotStart).toBeUndefined()
+          expect(state?.runningSnapshotEnd).toBeUndefined()
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("payload includes Latest Summary + Previous Diff + New Diff", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 1, diff_token_threshold: 1, diff_turn_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello world")
+          const a = await assistant(session.id, u.id, tmp.path)
+          const u2 = await user(session.id, "second user message")
+          const a2 = await assistant(session.id, u2.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryState.Service.use((s) =>
+              s.getOrInit({ sessionID: session.id, messages: msgs }),
+            ).pipe(Effect.provide(SecretaryState.defaultLayer)),
+          )
+
+          const summaryText = "test summary content"
+          await rt.runPromise(
+            SecretaryState.Service.use((s) =>
+              s.update({
+                sessionID: session.id,
+                update: (st) => ({
+                  ...st,
+                  status: "idle",
+                  summary: summaryText,
+                  previousDiffStart: msgs[0]?.info.id,
+                  previousDiffEnd: a.id,
+                  newDiffStart: u2.id,
+                }),
+              }),
+            ).pipe(Effect.provide(SecretaryState.defaultLayer)),
+          )
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u2,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          expect(result.type).toBe("switched")
+          if (result.type !== "switched") return
+
+          const newMsgs = await svc.messages({ sessionID: result.sessionID })
+          expect(newMsgs).toHaveLength(1)
+          expect(newMsgs[0].info.role).toBe("user")
+          const textPart = newMsgs[0].parts.find((p): p is MessageV2.TextPart => p.type === "text")
+          expect(textPart).toBeDefined()
+          if (textPart) {
+            expect(textPart.text).toContain("Latest Summary")
+            expect(textPart.text).toContain(summaryText)
+            expect(textPart.text).toContain("Previous Diff")
+            expect(textPart.text).toContain("New Diff")
+          }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("trims only Previous Diff on overflow and sets payload_degraded", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 500 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "big message " + "x".repeat(2000))
+          const a = await assistant(session.id, u.id, tmp.path)
+          const u2 = await user(session.id, "second message")
+          const a2 = await assistant(session.id, u2.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryState.Service.use((s) =>
+              s.getOrInit({ sessionID: session.id, messages: msgs }),
+            ).pipe(Effect.provide(SecretaryState.defaultLayer)),
+          )
+
+          await rt.runPromise(
+            SecretaryState.Service.use((s) =>
+              s.update({
+                sessionID: session.id,
+                update: (st) => ({
+                  ...st,
+                  status: "idle",
+                  summary: "short summary",
+                  previousDiffStart: msgs[0]?.info.id,
+                  previousDiffEnd: a.id,
+                  newDiffStart: u2.id,
+                }),
+              }),
+            ).pipe(Effect.provide(SecretaryState.defaultLayer)),
+          )
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u2,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          expect(result.type).toBe("switched")
+          if (result.type !== "switched") return
+
+          const newMsgs = await svc.messages({ sessionID: result.sessionID })
+          const textPart = newMsgs[0].parts.find((p): p is MessageV2.TextPart => p.type === "text")
+          expect(textPart).toBeDefined()
+          if (textPart) {
+            expect(textPart.text).toContain("Latest Summary")
+            expect(textPart.text).toContain("New Diff")
+            expect(textPart.text).toContain("[trimmed]")
+            expect(textPart.text).toContain("Previous Diff")
+          }
+
+          const state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
+            Effect.provide(SecretaryState.defaultLayer),
+            Effect.runPromise,
+          )
+          expect(state?.payloadDegraded).toBe(true)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("classic state flag blocks secretary triggers even when config says secretary", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        stub.push(reply("should not be used"))
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { diff_token_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello")
+          const a = await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await runState(
+            SecretaryState.Service.use((s) =>
+              s.getOrInit({ sessionID: session.id, messages: msgs }),
+            ),
+          )
+          await runState(
+            SecretaryState.Service.use((s) => s.markClassic(session.id)),
+          )
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: a,
+                user: u,
+              }),
+            ),
+          )
+
+          const state = await runState(
+            SecretaryState.Service.use((s) => s.get(session.id)),
+          )
+          expect(state?.classic).toBe(true)
+          expect(state?.status).toBe("idle")
+          expect(state?.summary).toBeUndefined()
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+          expect(result.type).toBe("continue")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("secretary prompt includes system prompt and previous summary when available", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        let capturedInput: LLM.StreamInput | undefined
+        stub.push((input) => {
+          capturedInput = input
+          return reply("new summary")(input)
+        })
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { diff_token_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u1 = await user(session.id, "first message")
+          const a1 = await assistant(session.id, u1.id, tmp.path)
+          const u2 = await user(session.id, "second message")
+          const a2 = await assistant(session.id, u2.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await runState(
+            SecretaryState.Service.use((s) =>
+              Effect.gen(function* () {
+                const init = yield* s.getOrInit({ sessionID: session.id, messages: msgs })
+                return yield* s.update({
+                  sessionID: session.id,
+                  update: (st) => ({
+                    ...st,
+                    summary: "previous summary text",
+                    previousDiffStart: msgs[0]?.info.id,
+                    previousDiffEnd: a1.id,
+                    newDiffStart: u2.id,
+                  }),
+                })
+              }),
+            ),
+          )
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.afterAssistantComplete({
+                sessionID: session.id,
+                messages: msgs,
+                assistant: a2,
+                user: u2,
+              }),
+            ),
+          )
+
+          let state = await runState(SecretaryState.Service.use((s) => s.get(session.id)))
+          const deadline = Date.now() + 5000
+          while (state?.status !== "idle" && state?.status !== "error" && Date.now() < deadline) {
+            await wait(50)
+            state = await runState(SecretaryState.Service.use((s) => s.get(session.id)))
+          }
+
+          expect(capturedInput).toBeDefined()
+          if (!capturedInput) return
+          const msgContent = JSON.stringify(capturedInput.messages)
+          expect(msgContent).toContain("Previous Summary")
+          expect(msgContent).toContain("previous summary text")
+          expect(msgContent).toContain("Previous Diff")
+          expect(msgContent).toContain("New Diff")
+          expect(msgContent).toContain("non-coding summary-maintenance agent")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("compact payload excludes JSON role keys in Previous and New Diff", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello world")
+          const a = await assistant(session.id, u.id, tmp.path)
+          await svc.updatePart({
+            id: PartID.ascending(),
+            messageID: a.id,
+            sessionID: session.id,
+            type: "text",
+            text: "assistant response",
+          })
+          const u2 = await user(session.id, "second user message")
+          const a2 = await assistant(session.id, u2.id, tmp.path)
+          await svc.updatePart({
+            id: PartID.ascending(),
+            messageID: a2.id,
+            sessionID: session.id,
+            type: "text",
+            text: "another assistant response",
+          })
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await runState(
+            SecretaryState.Service.use((s) =>
+              s.getOrInit({ sessionID: session.id, messages: msgs }),
+            ),
+          )
+
+          const summaryText = "test summary content"
+          await runState(
+            SecretaryState.Service.use((s) =>
+              s.update({
+                sessionID: session.id,
+                update: (st) => ({
+                  ...st,
+                  status: "idle",
+                  summary: summaryText,
+                  previousDiffStart: msgs[0]?.info.id,
+                  previousDiffEnd: a.id,
+                  newDiffStart: u2.id,
+                }),
+              }),
+            ),
+          )
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u2,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          expect(result.type).toBe("switched")
+          if (result.type !== "switched") return
+
+          const newMsgs = await svc.messages({ sessionID: result.sessionID })
+          const textPart = newMsgs[0].parts.find((p): p is MessageV2.TextPart => p.type === "text")
+          expect(textPart).toBeDefined()
+          if (textPart) {
+            expect(textPart.text).toContain("Latest Summary")
+            expect(textPart.text).toContain("Previous Diff")
+            expect(textPart.text).toContain("New Diff")
+            expect(textPart.text).toContain("## User")
+            expect(textPart.text).toContain("## Assistant")
+            expect(textPart.text).not.toContain('"role"')
+            expect(textPart.text).not.toContain('"content"')
+          }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("compact.waiting event only emitted when action actually waited", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello world")
+          await assistant(session.id, u.id, tmp.path)
+          const u2 = await user(session.id, "second message")
+          await assistant(session.id, u2.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await runState(
+            SecretaryState.Service.use((s) =>
+              s.getOrInit({ sessionID: session.id, messages: msgs }),
+            ),
+          )
+
+          const summaryText = "existing summary"
+          await runState(
+            SecretaryState.Service.use((s) =>
+              s.update({
+                sessionID: session.id,
+                update: (st) => ({
+                  ...st,
+                  status: "idle",
+                  summary: summaryText,
+                  previousDiffStart: msgs[0]?.info.id,
+                  previousDiffEnd: msgs[2]?.info.id,
+                  newDiffStart: u2.id,
+                }),
+              }),
+            ),
+          )
+
+          let waitingEvent = false
+          const unsub = await rt.runPromise(
+            Bus.Service.use((svc) =>
+              svc.subscribeCallback(SessionEvent.Secretary.Compact.Waiting.Sync, (evt) => {
+                if (evt.properties.sessionID === session.id) waitingEvent = true
+              }),
+            ),
+          )
+
+          await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u2,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          expect(waitingEvent).toBe(false)
+          unsub?.()
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("creates new session and old session remains listable", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 1 },
+          }),
+        )
+        try {
+          const session = await svc.create({})
+          const u = await user(session.id, "hello world")
+          const a = await assistant(session.id, u.id, tmp.path)
+          const u2 = await user(session.id, "second message")
+          const a2 = await assistant(session.id, u2.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await rt.runPromise(
+            SecretaryState.Service.use((s) =>
+              s.getOrInit({ sessionID: session.id, messages: msgs }),
+            ).pipe(Effect.provide(SecretaryState.defaultLayer)),
+          )
+
+          await rt.runPromise(
+            SecretaryState.Service.use((s) =>
+              s.update({
+                sessionID: session.id,
+                update: (st) => ({
+                  ...st,
+                  status: "idle",
+                  summary: "compact summary",
+                  previousDiffStart: msgs[0]?.info.id,
+                  previousDiffEnd: a.id,
+                  newDiffStart: u2.id,
+                }),
+              }),
+            ).pipe(Effect.provide(SecretaryState.defaultLayer)),
+          )
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u2,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          expect(result.type).toBe("switched")
+          if (result.type !== "switched") return
+          expect(result.sessionID).toBeTruthy()
+          expect(result.sessionID).not.toBe(session.id)
+
+          const oldMsgs = await svc.messages({ sessionID: session.id })
+          expect(oldMsgs).toHaveLength(4)
+
+          const newMsgs = await svc.messages({ sessionID: result.sessionID })
+          expect(newMsgs).toHaveLength(1)
+          expect(newMsgs[0].info.role).toBe("user")
+          expect(
+            newMsgs[0].parts.some((p) => p.type === "text" && p.text.includes("compact summary")),
+          ).toBe(true)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+})
+
 describe("util.token.estimate", () => {
   test("estimates tokens from text (4 chars per token)", () => {
     const text = "x".repeat(4000)
@@ -2191,5 +3479,123 @@ describe("SessionNs.getUsage", () => {
     expect(result.tokens.input).toBe(500)
     expect(result.tokens.cache.read).toBe(200)
     expect(result.tokens.cache.write).toBe(300)
+  })
+})
+
+describe("session.compaction.manual", () => {
+  test("manual compact with omitted strategy uses classic create behavior", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, "hello")
+        const rt = runtime("continue")
+        try {
+          const manual = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.manual({
+                sessionID: session.id,
+                agent: "build",
+                model: ref,
+              }),
+            ),
+          )
+
+          expect(manual).toBe(true)
+
+          const msgs = await svc.messages({ sessionID: session.id })
+          expect(msgs.some((m) => m.parts.some((p) => p.type === "compaction"))).toBe(true)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("manual compact with classic strategy uses classic create behavior", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, "hello")
+        const rt = runtime("continue", Plugin.defaultLayer, wide(), cfg({ strategy: "classic" }))
+        try {
+          const manual = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.manual({
+                sessionID: session.id,
+                agent: "build",
+                model: ref,
+              }),
+            ),
+          )
+
+          expect(manual).toBe(true)
+
+          const msgs = await svc.messages({ sessionID: session.id })
+          expect(msgs.some((m) => m.parts.some((p) => p.type === "compaction"))).toBe(true)
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("manual compact with secretary strategy creates a new session", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        await user(session.id, "hello")
+        const newSessionID = SessionID.make(crypto.randomUUID())
+        const secStub = Layer.succeed(
+          SecretaryCompaction.Service,
+          SecretaryCompaction.Service.of({
+            afterAssistantComplete: () => Effect.void,
+            beforeModelSend: () => Effect.succeed({ type: "continue" as const }),
+            manualCompact: () => Effect.succeed({ type: "switched" as const, sessionID: newSessionID }),
+          }),
+        )
+        const rt = ManagedRuntime.make(
+          Layer.mergeAll(SessionCompaction.layer, Bus.layer).pipe(
+            Layer.provide(wide().layer),
+            Layer.provide(SessionNs.defaultLayer),
+            Layer.provide(layer("continue")),
+            Layer.provide(Agent.defaultLayer),
+            Layer.provide(Plugin.defaultLayer),
+            Layer.provide(Bus.layer),
+            Layer.provide(
+              cfg({
+                strategy: "secretary",
+                secretary: { diff_token_threshold: 1, diff_turn_threshold: 1, context_token_threshold: 1 },
+              }),
+            ),
+            Layer.provide(secStub),
+          ),
+        )
+        try {
+          const manual = await rt.runPromise(
+            SessionCompaction.Service.use((svc) =>
+              svc.manual({
+                sessionID: session.id,
+                agent: "build",
+                model: ref,
+              }),
+            ),
+          )
+
+          expect(typeof manual === "object" && "sessionID" in manual).toBe(true)
+          if (typeof manual === "object" && "sessionID" in manual) {
+            expect(typeof manual.sessionID).toBe("string")
+            expect(manual.sessionID).not.toBe(session.id)
+          }
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
   })
 })

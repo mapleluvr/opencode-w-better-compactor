@@ -24,6 +24,8 @@ import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { SessionCompaction } from "../../src/session/compaction"
+import { SecretaryCompaction } from "../../src/session/secretary-compaction"
+import { SecretaryState } from "../../src/session/secretary-state"
 import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
@@ -155,7 +157,7 @@ const lsp = Layer.succeed(
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
-function makeHttp() {
+function makeHttp(secOverride?: Layer.Layer<SecretaryCompaction.Service>) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -187,6 +189,11 @@ function makeHttp() {
   const trunc = Truncate.layer.pipe(Layer.provideMerge(deps))
   const proc = SessionProcessor.layer.pipe(Layer.provide(summary), Layer.provideMerge(deps))
   const compact = SessionCompaction.layer.pipe(Layer.provideMerge(proc), Layer.provideMerge(deps))
+  const secr = secOverride ?? SecretaryCompaction.layer.pipe(
+    Layer.provide(SecretaryState.layer),
+    Layer.provideMerge(deps),
+    Layer.provide(LLM.defaultLayer),
+  )
   return Layer.mergeAll(
     TestLLMServer.layer,
     SessionPrompt.layer.pipe(
@@ -194,6 +201,7 @@ function makeHttp() {
       Layer.provide(summary),
       Layer.provideMerge(run),
       Layer.provideMerge(compact),
+      Layer.provideMerge(secr),
       Layer.provideMerge(proc),
       Layer.provideMerge(registry),
       Layer.provideMerge(trunc),
@@ -2056,6 +2064,213 @@ it.live(
           }
         }),
       { git: true },
+    ),
+  30_000,
+)
+
+// ─── Secretary prompt-loop integration ────────────────────────────────
+
+function makeSecretaryMock(onAfterAssistantComplete?: () => void) {
+  const counters = { afterAssistantComplete: 0, beforeModelSend: 0 }
+  const layer = Layer.succeed(
+    SecretaryCompaction.Service,
+    SecretaryCompaction.Service.of({
+      afterAssistantComplete: (input) =>
+        Effect.sync(() => {
+          if (!input.assistant.summary) {
+            counters.afterAssistantComplete++
+            onAfterAssistantComplete?.()
+          }
+        }),
+      beforeModelSend: (input) =>
+        Effect.sync(() => {
+          counters.beforeModelSend++
+          return { type: "continue" as const }
+        }),
+      manualCompact: () => Effect.succeed({ type: "continue" as const }),
+    }),
+  )
+  return { layer, counters }
+}
+
+const secMock = makeSecretaryMock()
+const itSec = testEffect(makeHttp(secMock.layer))
+
+function secCfg(url: string) {
+  return {
+    ...providerCfg(url),
+    compaction: {
+      auto: true,
+      strategy: "secretary" as const,
+      secretary: {
+        diff_token_threshold: 1,
+        diff_turn_threshold: 1,
+        context_token_threshold: 1000000,
+      },
+    },
+  }
+}
+
+function secOverflowCfg(url: string) {
+  return {
+    ...providerCfg(url),
+    compaction: {
+      auto: true,
+      strategy: "secretary" as const,
+      secretary: {
+        diff_token_threshold: 1,
+        diff_turn_threshold: 1,
+        context_token_threshold: 1000,
+      },
+    },
+  }
+}
+
+{
+  let done!: () => void
+  const called = new Promise<void>((resolve) => {
+    done = resolve
+  })
+  const mock = makeSecretaryMock(done)
+  const itSecAfter = testEffect(makeHttp(mock.layer))
+
+itSecAfter.live(
+  "secretary afterAssistantComplete runs at complete assistant boundary",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Secretary test" })
+        yield* seed(chat.id, { finish: "stop" })
+
+        const counterBefore = mock.counters.afterAssistantComplete
+        yield* prompt.loop({ sessionID: chat.id })
+        yield* Effect.promise(() => called)
+
+        expect(mock.counters.afterAssistantComplete).toBeGreaterThan(counterBefore)
+      }),
+      { git: true, config: secCfg },
+    ),
+)
+}
+
+itSec.live(
+  "secretary afterAssistantComplete does not run for summary assistant messages",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({
+          title: "Secretary test",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+
+        yield* SessionCompaction.Service.use((svc) =>
+          svc.create({
+            sessionID: chat.id,
+            agent: "build",
+            model: ref,
+            auto: false,
+          }),
+        )
+
+        yield* llm.text("summary response")
+
+        const counterBefore = secMock.counters.afterAssistantComplete
+        yield* prompt.loop({ sessionID: chat.id })
+
+        const calls = yield* llm.calls
+        expect(calls).toBeGreaterThanOrEqual(1)
+        expect(secMock.counters.afterAssistantComplete).toBe(counterBefore)
+      }),
+      { git: true, config: secCfg },
+    ),
+)
+
+itSec.live(
+  "secretary beforeModelSend runs before model send",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({
+          title: "Secretary test",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "hello" }],
+        })
+        yield* llm.text("world")
+
+        const counterBefore = secMock.counters.beforeModelSend
+        const first = yield* prompt.loop({ sessionID: chat.id })
+        expect(first.info.role).toBe("assistant")
+        expect(secMock.counters.beforeModelSend).toBeGreaterThan(counterBefore)
+
+        yield* prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "second prompt" }],
+        })
+        yield* llm.text("response")
+
+        const counterBefore2 = secMock.counters.beforeModelSend
+        const second = yield* prompt.loop({ sessionID: chat.id })
+        expect(second.info.role).toBe("assistant")
+        expect(secMock.counters.beforeModelSend).toBeGreaterThan(counterBefore2)
+
+        const children = yield* sessions.children(chat.id).pipe(Effect.catch(() => Effect.succeed([])))
+        expect(Array.isArray(children)).toBe(true)
+      }),
+      { git: true, config: secCfg },
+    ),
+)
+
+itSec.live(
+  "secretary switched stops old loop before handle.process",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({
+          title: "Secretary overflow",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "hello" }],
+        })
+
+        for (let i = 0; i < 10; i++) {
+          yield* llm.text("x".repeat(5000))
+          yield* prompt.loop({ sessionID: chat.id })
+          yield* prompt.prompt({
+            sessionID: chat.id,
+            agent: "build",
+            noReply: true,
+            parts: [{ type: "text", text: "prompt " + i }],
+          })
+        }
+        yield* llm.text("after switch")
+
+        const result = yield* prompt.loop({ sessionID: chat.id })
+
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        expect(messages.some((m) => m.info.role === "assistant")).toBe(true)
+        expect(secMock.counters.beforeModelSend).toBeGreaterThan(0)
+        expect(secMock.counters.afterAssistantComplete).toBeGreaterThan(0)
+      }),
+      { git: true, config: secOverflowCfg },
     ),
   30_000,
 )
