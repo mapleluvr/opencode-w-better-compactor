@@ -103,6 +103,32 @@ export const TodoTable = sqliteTable(
   ],
 )
 
+export const SecretaryStateTable = sqliteTable(
+  "secretary_state",
+  {
+    session_id: text()
+      .$type<SessionID>()
+      .primaryKey()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    version: integer().notNull(),
+    status: text().$type<"idle" | "running" | "retrying" | "error" | "compacting">().notNull(),
+    summary: text(),
+    summary_up_to: text().$type<MessageID>(),
+    previous_diff_start: text().$type<MessageID>(),
+    previous_diff_end: text().$type<MessageID>(),
+    new_diff_start: text().$type<MessageID>(),
+    running_snapshot_start: text().$type<MessageID>(),
+    running_snapshot_end: text().$type<MessageID>(),
+    retry_count: integer().notNull(),
+    last_error: text(),
+    last_success_at: integer(),
+    payload_degraded: integer({ mode: "boolean" }).notNull(),
+    classic: integer({ mode: "boolean" }).notNull(),
+    ...Timestamps,
+  },
+  (table) => [index("secretary_state_status_idx").on(table.status)],
+)
+
 export const SessionMessageTable = sqliteTable(
   "session_message",
   {

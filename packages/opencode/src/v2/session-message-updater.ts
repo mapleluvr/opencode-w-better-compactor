@@ -408,6 +408,14 @@ export function update<Result>(adapter: Adapter<Result>, event: SessionEvent.Eve
         )
       }
     },
+    "session.next.secretary.started": () => {},
+    "session.next.secretary.retrying": () => {},
+    "session.next.secretary.succeeded": () => {},
+    "session.next.secretary.failed": () => {},
+    "session.next.secretary.compact.waiting": () => {},
+    "session.next.secretary.compact.degraded": () => {},
+    "session.next.secretary.compact.started": () => {},
+    "session.next.secretary.compact.switched": () => {},
   })
 
   return adapter.finish()

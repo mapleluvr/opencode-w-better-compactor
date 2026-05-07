@@ -12,6 +12,7 @@ import { ModelID, ProviderID } from "../provider/schema"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
+import { SecretaryCompaction } from "./secretary-compaction"
 import { Bus } from "../bus"
 import { ProviderTransform } from "@/provider/transform"
 import { SystemPrompt } from "./system"
@@ -99,6 +100,7 @@ export const layer = Layer.effect(
     const provider = yield* Provider.Service
     const processor = yield* SessionProcessor.Service
     const compaction = yield* SessionCompaction.Service
+    const secretary = yield* SecretaryCompaction.Service
     const plugin = yield* Plugin.Service
     const commands = yield* Command.Service
     const config = yield* Config.Service
@@ -1443,6 +1445,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             !hasToolCalls &&
             lastUser.id < lastAssistant.id
           ) {
+            if (!lastAssistant.summary && !lastAssistant.error) {
+              yield* secretary
+                .afterAssistantComplete({
+                  sessionID,
+                  messages: msgs,
+                  assistant: lastAssistant,
+                  user: lastUser,
+                })
+                .pipe(Effect.catchCause(() => Effect.void), Effect.forkIn(scope))
+            }
             yield* slog.info("exiting loop")
             break
           }
@@ -1574,6 +1586,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const system = [...env, ...instructions, ...(skills ? [skills] : [])]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+
+            const compact = yield* secretary.beforeModelSend({
+              sessionID,
+              messages: msgs,
+              user: lastUser,
+              model,
+            })
+            if (compact.type === "switched") {
+              return "break" as const
+            }
+
             const result = yield* handle.process({
               user: lastUser,
               agent,
@@ -1773,6 +1796,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(SessionRunState.defaultLayer),
     Layer.provide(SessionStatus.defaultLayer),
     Layer.provide(SessionCompaction.defaultLayer),
+    Layer.provide(SecretaryCompaction.defaultLayer),
     Layer.provide(SessionProcessor.defaultLayer),
     Layer.provide(Command.defaultLayer),
     Layer.provide(Permission.defaultLayer),

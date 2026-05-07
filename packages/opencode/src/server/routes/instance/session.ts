@@ -559,7 +559,14 @@ export const SessionRoutes = lazy(() =>
             description: "Summarized session",
             content: {
               "application/json": {
-                schema: resolver(z.boolean()),
+                schema: resolver(
+                  z.union([
+                    z.boolean(),
+                    z.object({
+                      sessionID: SessionID.zod,
+                    }),
+                  ]),
+                ),
               },
             },
           },
@@ -602,7 +609,7 @@ export const SessionRoutes = lazy(() =>
             }
           }
 
-          yield* compact.create({
+          const result = yield* compact.manual({
             sessionID,
             agent: currentAgent,
             model: {
@@ -611,6 +618,12 @@ export const SessionRoutes = lazy(() =>
             },
             auto: body.auto,
           })
+
+          if (typeof result === "object" && "sessionID" in result) {
+            yield* prompt.loop({ sessionID: result.sessionID })
+            return { sessionID: result.sessionID }
+          }
+
           yield* prompt.loop({ sessionID })
           return true
         }),

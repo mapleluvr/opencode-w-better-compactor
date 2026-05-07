@@ -63,6 +63,7 @@ import { DialogConfirm } from "@tui/ui/dialog-confirm"
 import { DialogTimeline } from "./dialog-timeline"
 import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
+import { DialogCompactionSettings } from "../../component/dialog-compaction-settings"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -498,7 +499,7 @@ export function Session() {
         name: "compact",
         aliases: ["summarize"],
       },
-      onSelect: (dialog) => {
+      onSelect: async (dialog) => {
         const selectedModel = local.model.current()
         if (!selectedModel) {
           toast.show({
@@ -508,12 +509,33 @@ export function Session() {
           })
           return
         }
-        void sdk.client.session.summarize({
+        const result = (await sdk.client.session.summarize({
           sessionID: route.sessionID,
           modelID: selectedModel.modelID,
           providerID: selectedModel.providerID,
-        })
+        }).catch((err) => {
+          toast.show({
+            message: err instanceof Error ? err.message : "Failed to compact session",
+            variant: "error",
+          })
+          return null
+        })) as { data?: boolean | { sessionID: string } } | null
+        if (result?.data && typeof result.data === "object" && "sessionID" in result.data) {
+          navigate({ type: "session", sessionID: result.data.sessionID })
+        }
         dialog.clear()
+      },
+    },
+    {
+      title: "Compaction settings",
+      value: "compaction.settings",
+      category: "Session",
+      slash: {
+        name: "compaction",
+        aliases: ["autocompact", "secretary"],
+      },
+      onSelect: (dialog) => {
+        dialog.replace(() => <DialogCompactionSettings sessionID={route.sessionID} />)
       },
     },
     {
@@ -1036,6 +1058,15 @@ export function Session() {
 
   // snap to bottom when session changes
   createEffect(on(() => route.sessionID, toBottom))
+
+  createEffect(() => {
+    if (dialog.stack.length > 0) return
+    const sessionID = route.sessionID
+    const newSessionID = sync.data.secretary_status[sessionID]?.new_session_id
+    if (newSessionID && route.sessionID === sessionID) {
+      navigate({ type: "session", sessionID: newSessionID })
+    }
+  })
 
   return (
     <context.Provider

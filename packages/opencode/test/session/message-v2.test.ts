@@ -108,6 +108,106 @@ function basePart(messageID: string, id: string) {
   }
 }
 
+function withParts(info: MessageV2.WithParts["info"]): MessageV2.WithParts {
+  return {
+    info,
+    parts: [],
+  }
+}
+
+function toolInfo(id: string): MessageV2.User {
+  return {
+    ...userInfo(id),
+    agent: "tool",
+  } as MessageV2.User
+}
+
+function toolMessage(id: string): MessageV2.WithParts {
+  return {
+    info: toolInfo(id),
+    parts: [
+      {
+        ...basePart(id, `${id}-tool`),
+        type: "tool",
+        callID: `${id}-call`,
+        tool: "bash",
+        state: {
+          status: "completed",
+          input: { cmd: "pwd" },
+          output: "/tmp",
+          title: "Bash",
+          metadata: {},
+          time: { start: 0, end: 1 },
+        },
+      },
+    ] as MessageV2.Part[],
+  }
+}
+
+describe("session.message-v2.secretary", () => {
+  test("counts closed turns at assistant anchors", () => {
+    expect(MessageV2.secretaryTurnCount([withParts(userInfo("u1")), withParts(assistantInfo("a1", "u1"))])).toBe(1)
+    expect(MessageV2.secretaryTurnCount([toolMessage("t1"), withParts(assistantInfo("a1", "t1"))])).toBe(1)
+    expect(
+      MessageV2.secretaryTurnCount([
+        withParts(userInfo("u1")),
+        toolMessage("t1"),
+        withParts(assistantInfo("a1", "u1")),
+      ]),
+    ).toBe(1)
+  })
+
+  test("counts adjacent head messages after an assistant as one open tail turn", () => {
+    expect(
+      MessageV2.secretaryTurnCount([
+        withParts(assistantInfo("a1", "u1")),
+        withParts(userInfo("u2")),
+        withParts(userInfo("u3")),
+      ]),
+    ).toBe(2)
+    expect(
+      MessageV2.secretaryTurnCount([withParts(assistantInfo("a1", "u1")), toolMessage("t1"), toolMessage("t2")]),
+    ).toBe(2)
+  })
+
+  test("counts adjacent assistant messages with the same parent as one anchor", () => {
+    expect(
+      MessageV2.secretaryTurnCount([
+        withParts(userInfo("u1")),
+        withParts(assistantInfo("a1", "u1")),
+        withParts(assistantInfo("a2", "u1")),
+      ]),
+    ).toBe(1)
+  })
+
+  test("returns inclusive secretary ranges for stored boundaries", () => {
+    const messages = [
+      withParts(userInfo("u1")),
+      withParts(assistantInfo("a1", "u1")),
+      withParts(userInfo("u2")),
+      withParts(assistantInfo("a2", "u2")),
+    ]
+
+    expect(MessageV2.secretaryRange({ messages, start: MessageID.make("a1"), end: MessageID.make("u2") })).toEqual([
+      messages[1],
+      messages[2],
+    ])
+    expect(MessageV2.secretaryRange({ messages, end: MessageID.make("a1") })).toEqual([messages[0], messages[1]])
+    expect(MessageV2.secretaryRange({ messages, start: MessageID.make("u2") })).toEqual([messages[2], messages[3]])
+    expect(MessageV2.secretaryRange({ messages, start: MessageID.make("missing") })).toEqual([])
+    expect(MessageV2.secretaryRange({ messages, start: MessageID.make("a2"), end: MessageID.make("u1") })).toEqual([])
+  })
+
+  test("returns the next secretary boundary after a stored boundary", () => {
+    const messages = [withParts(userInfo("u1")), withParts(assistantInfo("a1", "u1")), withParts(userInfo("u2"))]
+
+    expect(MessageV2.nextBoundary(messages)).toBe(MessageID.make("u1"))
+    expect(MessageV2.nextBoundary(messages, MessageID.make("u1"))).toBe(MessageID.make("a1"))
+    expect(MessageV2.nextBoundary(messages, MessageID.make("u2"))).toBeUndefined()
+    expect(MessageV2.nextBoundary(messages, MessageID.make("missing"))).toBeUndefined()
+  })
+})
+
 describe("session.message-v2.toModelMessage", () => {
   test("filters out messages with no parts", async () => {
     const input: MessageV2.WithParts[] = [

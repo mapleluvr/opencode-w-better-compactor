@@ -358,6 +358,89 @@ export namespace Compaction {
   export type Ended = Schema.Schema.Type<typeof Ended>
 }
 
+export const SecretaryStatus = Schema.Literals(["idle", "running", "retrying", "error", "compacting"])
+export type SecretaryStatus = Schema.Schema.Type<typeof SecretaryStatus>
+
+const SecretaryBase = {
+  ...Base,
+  status: SecretaryStatus,
+  retry_count: NonNegativeInt.pipe(Schema.optional),
+  last_error: Schema.String.pipe(Schema.optional),
+  payload_degraded: Schema.Boolean.pipe(Schema.optional),
+  last_success_at: NonNegativeInt.pipe(Schema.optional),
+  diff_token_count: NonNegativeInt.pipe(Schema.optional),
+  diff_turn_count: NonNegativeInt.pipe(Schema.optional),
+  summary_up_to: Schema.String.pipe(Schema.optional),
+  previous_diff_start: Schema.String.pipe(Schema.optional),
+  previous_diff_end: Schema.String.pipe(Schema.optional),
+  running_snapshot_start: Schema.String.pipe(Schema.optional),
+  running_snapshot_end: Schema.String.pipe(Schema.optional),
+  compact_waiting: Schema.Boolean.pipe(Schema.optional),
+}
+
+export namespace Secretary {
+  export const Started = EventV2.define({
+    type: "session.next.secretary.started",
+    aggregate: "sessionID",
+    schema: SecretaryBase,
+  })
+  export type Started = Schema.Schema.Type<typeof Started>
+
+  export const Retrying = EventV2.define({
+    type: "session.next.secretary.retrying",
+    aggregate: "sessionID",
+    schema: SecretaryBase,
+  })
+  export type Retrying = Schema.Schema.Type<typeof Retrying>
+
+  export const Succeeded = EventV2.define({
+    type: "session.next.secretary.succeeded",
+    aggregate: "sessionID",
+    schema: SecretaryBase,
+  })
+  export type Succeeded = Schema.Schema.Type<typeof Succeeded>
+
+  export const Failed = EventV2.define({
+    type: "session.next.secretary.failed",
+    aggregate: "sessionID",
+    schema: SecretaryBase,
+  })
+  export type Failed = Schema.Schema.Type<typeof Failed>
+
+  export namespace Compact {
+    export const Waiting = EventV2.define({
+      type: "session.next.secretary.compact.waiting",
+      aggregate: "sessionID",
+      schema: SecretaryBase,
+    })
+    export type Waiting = Schema.Schema.Type<typeof Waiting>
+
+    export const Degraded = EventV2.define({
+      type: "session.next.secretary.compact.degraded",
+      aggregate: "sessionID",
+      schema: SecretaryBase,
+    })
+    export type Degraded = Schema.Schema.Type<typeof Degraded>
+
+    export const Started = EventV2.define({
+      type: "session.next.secretary.compact.started",
+      aggregate: "sessionID",
+      schema: SecretaryBase,
+    })
+    export type Started = Schema.Schema.Type<typeof Started>
+
+    export const Switched = EventV2.define({
+      type: "session.next.secretary.compact.switched",
+      aggregate: "sessionID",
+      schema: {
+        ...SecretaryBase,
+        new_session_id: SessionID,
+      },
+    })
+    export type Switched = Schema.Schema.Type<typeof Switched>
+  }
+}
+
 export const All = Schema.Union(
   [
     AgentSwitched,
@@ -386,6 +469,14 @@ export const All = Schema.Union(
     Compaction.Started,
     Compaction.Delta,
     Compaction.Ended,
+    Secretary.Started,
+    Secretary.Retrying,
+    Secretary.Succeeded,
+    Secretary.Failed,
+    Secretary.Compact.Waiting,
+    Secretary.Compact.Degraded,
+    Secretary.Compact.Started,
+    Secretary.Compact.Switched,
   ],
   {
     mode: "oneOf",
