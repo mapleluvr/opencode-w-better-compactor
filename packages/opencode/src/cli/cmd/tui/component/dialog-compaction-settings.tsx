@@ -10,6 +10,13 @@ interface DialogCompactionSettingsProps {
   sessionID: string
 }
 
+export function compactionControlDescriptions(config: { auto?: boolean; strategy?: "classic" | "secretary" }) {
+  return {
+    auto: config.auto === false ? "Disabled" : "Enabled",
+    strategy: (config.strategy ?? "classic") === "secretary" ? "Secretary" : "Classic",
+  }
+}
+
 export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
   const dialog = useDialog()
   const sync = useSync()
@@ -36,23 +43,28 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
 
   const enableClassic = async () => {
     await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, auto: true, strategy: "classic" } } })
+      .update({ config: { compaction: { ...sync.data.config.compaction, strategy: "classic" } } })
       .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
     dialog.clear()
   }
 
   const enableSecretary = async () => {
     await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, auto: true, strategy: "secretary" } } })
+      .update({ config: { compaction: { ...sync.data.config.compaction, strategy: "secretary" } } })
       .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
     dialog.clear()
   }
 
-  const disableAuto = async () => {
+  const toggleAuto = async () => {
     await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, auto: false } } })
+      .update({ config: { compaction: { ...sync.data.config.compaction, auto: config().auto === false } } })
       .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
     dialog.clear()
+  }
+
+  const toggleStrategy = async () => {
+    if (strategy() === "secretary") return enableClassic()
+    return enableSecretary()
   }
 
   const setSecretaryModel = async (dialog: DialogContext) => {
@@ -171,33 +183,23 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
     }).then(() => dialog.clear())
   }
 
-  const current = strategy() === "secretary"
-    ? "Secretary auto compaction"
-    : strategy() === "classic"
-      ? "Classic auto compaction"
-      : "Classic auto compaction"
+  const controls = createMemo(() => compactionControlDescriptions(config()))
 
   return (
     <DialogSelect
       title="Compaction settings"
       options={[
         {
-          title: "Classic auto compaction",
-          value: "classic",
-          description: config().auto ? "active" : "inactive (auto disabled)",
-          onSelect: enableClassic,
+          title: "Auto compaction",
+          value: "auto",
+          description: controls().auto,
+          onSelect: toggleAuto,
         },
         {
-          title: "Secretary auto compaction",
-          value: "secretary",
-          description: config().auto ? "active" : "inactive (auto disabled)",
-          onSelect: enableSecretary,
-        },
-        {
-          title: "Disable auto compaction",
-          value: "disable",
-          description: strategy(),
-          onSelect: disableAuto,
+          title: "Compaction strategy",
+          value: "strategy",
+          description: controls().strategy,
+          onSelect: toggleStrategy,
         },
         {
           title: "Secretary model",
@@ -235,7 +237,6 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
           onSelect: viewSecretaryStatus,
         },
       ]}
-      current={current}
     />
   )
 }
