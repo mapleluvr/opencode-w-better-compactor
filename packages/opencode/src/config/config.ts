@@ -730,6 +730,39 @@ export const layer = Layer.effect(
       return yield* InstanceState.use(state, (s) => s.consoleState)
     })
 
+    const writeConfigPatch = Effect.fnUntraced(function* (file: string, patch: Info) {
+      const before = (yield* readConfigFile(file)) ?? "{}"
+      const updated = file.endsWith(".jsonc")
+        ? patchJsonc(before, patch)
+        : JSON.stringify(mergeDeep(writable(yield* loadConfig(before, { path: file })), writable(patch)), null, 2)
+      yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+    })
+
+    const localConfigFile = Effect.fn("Config.localConfigFile")(function* (ctx: InstanceContext) {
+      const files = [
+        ...(yield* ConfigPaths.files("opencode", ctx.directory, ctx.worktree).pipe(Effect.orDie)),
+        ...(yield* ConfigPaths.directories(ctx.directory, ctx.worktree).pipe(Effect.orDie)).flatMap((dir) =>
+          containsPath(dir, ctx) ? [path.join(dir, "opencode.json"), path.join(dir, "opencode.jsonc")] : [],
+        ),
+      ]
+      const existing = yield* Effect.forEach(
+        files,
+        (file) =>
+          fs.existsSafe(file).pipe(
+            Effect.map((exists) => (exists ? file : undefined)),
+            Effect.orDie,
+          ),
+        { concurrency: "unbounded" },
+      )
+      const local = existing.findLast((file): file is string => file !== undefined)
+      if (local) return local
+
+      if (ctx.worktree !== "/" && AppFileSystem.contains(ctx.worktree, ctx.directory)) {
+        return path.join(ctx.worktree, "opencode.jsonc")
+      }
+      return path.join(ctx.directory, "opencode.jsonc")
+    })
+
     const waitForDependencies = Effect.fn("Config.waitForDependencies")(function* () {
       yield* InstanceState.useEffect(state, (s) =>
         Effect.forEach(s.deps, Fiber.join, { concurrency: "unbounded" }).pipe(Effect.asVoid),
@@ -737,12 +770,8 @@ export const layer = Layer.effect(
     })
 
     const update = Effect.fn("Config.update")(function* (config: Info) {
-      const dir = yield* InstanceState.directory
-      const file = path.join(dir, "config.json")
-      const existing = yield* loadFile(file)
-      yield* fs
-        .writeFileString(file, JSON.stringify(mergeDeep(writable(existing), writable(config)), null, 2))
-        .pipe(Effect.orDie)
+      const file = yield* localConfigFile(yield* InstanceState.context).pipe(Effect.provideService(AppFileSystem.Service, fs))
+      yield* writeConfigPatch(file, writable(config))
     })
 
     const invalidate = Effect.fn("Config.invalidate")(function* () {

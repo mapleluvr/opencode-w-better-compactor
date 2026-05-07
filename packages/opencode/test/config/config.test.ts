@@ -179,7 +179,7 @@ test("loads shell config field", async () => {
   })
 })
 
-test("updates config and preserves empty shell sentinel", async () => {
+test("updates local config and preserves empty shell sentinel", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await writeConfig(
@@ -188,7 +188,7 @@ test("updates config and preserves empty shell sentinel", async () => {
           $schema: "https://opencode.ai/config.json",
           shell: "bash",
         },
-        "config.json",
+        "opencode.jsonc",
       )
     },
   })
@@ -197,7 +197,7 @@ test("updates config and preserves empty shell sentinel", async () => {
     fn: async () => {
       await save({ shell: "" })
 
-      const writtenConfig = await Filesystem.readJson<{ shell?: string }>(path.join(tmp.path, "config.json"))
+      const writtenConfig = await Filesystem.readJson<{ shell?: string }>(path.join(tmp.path, "opencode.jsonc"))
       expect(writtenConfig.shell).toBe("")
     },
   })
@@ -1050,15 +1050,71 @@ Nested command template`,
 })
 
 test("updates config and writes to file", async () => {
-  await using tmp = await tmpdir()
+  await using tmp = await tmpdir({ git: true })
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const newConfig = { model: "updated/model" }
-      await save(newConfig as any)
+      await save({ model: "updated/model" })
 
-      const writtenConfig = await Filesystem.readJson<{ model: string }>(path.join(tmp.path, "config.json"))
+      const writtenConfig = await Filesystem.readJson<{ model: string }>(path.join(tmp.path, "opencode.jsonc"))
       expect(writtenConfig.model).toBe("updated/model")
+    },
+  })
+})
+
+test("updates existing project opencode jsonc instead of unread config json", async () => {
+  await using tmp = await tmpdir({
+    git: true,
+    init: async (dir) => {
+      const opencode = path.join(dir, ".opencode")
+      await fs.mkdir(opencode, { recursive: true })
+      await Filesystem.write(
+        path.join(opencode, "opencode.jsonc"),
+        `{
+  "$schema": "https://opencode.ai/config.json",
+  // keep this comment
+  "compaction": {
+    "auto": true,
+    "strategy": "classic"
+  }
+}`,
+      )
+    },
+  })
+
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      await save({ compaction: { strategy: "secretary", secretary: { diff_token_threshold: 1234 } } })
+
+      const file = path.join(tmp.path, ".opencode", "opencode.jsonc")
+      const writtenConfig = await Filesystem.readText(file)
+      const parsed = ConfigParse.schema(Config.Info.zod, ConfigParse.jsonc(writtenConfig, file), file)
+      expect(writtenConfig).toContain("// keep this comment")
+      expect(parsed.compaction).toMatchObject({
+        auto: true,
+        strategy: "secretary",
+        secretary: { diff_token_threshold: 1234 },
+      })
+      expect(await Filesystem.exists(path.join(tmp.path, "config.json"))).toBe(false)
+    },
+  })
+})
+
+test("creates readable project config when updating a project without config", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      await save({ compaction: { strategy: "secretary", secretary: { diff_turn_threshold: 3 } } })
+      await clear(true)
+
+      expect(await Filesystem.exists(path.join(tmp.path, "opencode.jsonc"))).toBe(true)
+      expect(await Filesystem.exists(path.join(tmp.path, "config.json"))).toBe(false)
+      expect((await load()).compaction).toMatchObject({
+        strategy: "secretary",
+        secretary: { diff_turn_threshold: 3 },
+      })
     },
   })
 })
