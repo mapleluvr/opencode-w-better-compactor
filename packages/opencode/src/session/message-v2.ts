@@ -1133,6 +1133,49 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
   return result
 }
 
+type SecretaryHead = "user" | "tool"
+
+function secretaryHead(msg: WithParts): SecretaryHead {
+  if (msg.parts.some((part) => part.type === "tool")) return "tool"
+  return "user"
+}
+
+export function secretaryTurnCount(messages: WithParts[]) {
+  let count = 0
+  let tail: SecretaryHead | undefined
+  let previousAssistantParentID: MessageID | undefined
+  let previousAssistant = false
+
+  for (const msg of messages) {
+    if (msg.info.role === "assistant") {
+      if (previousAssistant && previousAssistantParentID === msg.info.parentID) continue
+      count++
+      tail = undefined
+      previousAssistant = true
+      previousAssistantParentID = msg.info.parentID
+      continue
+    }
+    tail = secretaryHead(msg)
+    previousAssistant = false
+    previousAssistantParentID = undefined
+  }
+
+  return count + (tail ? 1 : 0)
+}
+
+export function secretaryRange(input: { messages: WithParts[]; start?: MessageID; end?: MessageID }) {
+  const start = input.start ? input.messages.findIndex((msg) => msg.info.id === input.start) : 0
+  const end = input.end ? input.messages.findIndex((msg) => msg.info.id === input.end) : input.messages.length - 1
+  if (start < 0 || end < 0 || start > end) return []
+  return input.messages.slice(start, end + 1)
+}
+
+export function nextBoundary(messages: WithParts[], boundary?: MessageID) {
+  if (!boundary) return messages[0]?.info.id
+  const index = messages.findIndex((msg) => msg.info.id === boundary)
+  return index >= 0 ? messages[index + 1]?.info.id : undefined
+}
+
 export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
   return filterCompacted(stream(sessionID))
 })

@@ -232,7 +232,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       const defaultAgent = yield* agentSvc.defaultAgent()
       const currentAgent = messages.findLast((message) => message.info.role === "user")?.info.agent ?? defaultAgent
 
-      yield* compactSvc.create({
+      const result = yield* compactSvc.manual({
         sessionID: ctx.params.sessionID,
         agent: currentAgent,
         model: {
@@ -241,6 +241,12 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         },
         auto: ctx.payload.auto ?? false,
       })
+
+      if (typeof result === "object" && "sessionID" in result) {
+        yield* promptSvc.loop({ sessionID: result.sessionID })
+        return { sessionID: result.sessionID }
+      }
+
       yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
       return true
     })

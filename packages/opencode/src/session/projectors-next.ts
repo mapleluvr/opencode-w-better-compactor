@@ -200,4 +200,28 @@ export default [
   SyncEvent.project(SessionEvent.Compaction.Ended.Sync, (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.compaction.ended", data })
   }),
+  SyncEvent.project(SessionEvent.Secretary.Started.Sync, (db, data, event) => {
+    update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.secretary.started", data })
+  }),
+  SyncEvent.project(SessionEvent.Secretary.Retrying.Sync, (db, data, event) => {
+    update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.secretary.retrying", data })
+  }),
+  SyncEvent.project(SessionEvent.Secretary.Succeeded.Sync, (db, data, event) => {
+    update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.secretary.succeeded", data })
+  }),
+  SyncEvent.project(SessionEvent.Secretary.Failed.Sync, (db, data, event) => {
+    update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.secretary.failed", data })
+  }),
+  SyncEvent.project(SessionEvent.Secretary.Compact.Waiting.Sync, (db, data, event) => {
+    update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.secretary.compact.waiting", data })
+  }),
+  SyncEvent.project(SessionEvent.Secretary.Compact.Degraded.Sync, (db, data, event) => {
+    update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.secretary.compact.degraded", data })
+  }),
+  SyncEvent.project(SessionEvent.Secretary.Compact.Started.Sync, (db, data, event) => {
+    update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.secretary.compact.started", data })
+  }),
+  SyncEvent.project(SessionEvent.Secretary.Compact.Switched.Sync, (db, data, event) => {
+    update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.secretary.compact.switched", data })
+  }),
 ]

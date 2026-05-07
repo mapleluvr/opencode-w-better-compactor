@@ -33,6 +33,27 @@ import { emptyConsoleState, type ConsoleState } from "@/config/console-state"
 import path from "path"
 import { useKV } from "./kv"
 
+import type { SecretaryState } from "@/session/secretary-state"
+
+type SecretaryStatusInfo = {
+  sessionID: string
+  timestamp: number
+  status: SecretaryState.Status
+  retry_count?: number
+  last_error?: string
+  payload_degraded?: boolean
+  new_session_id?: string
+  last_success_at?: number
+  diff_token_count?: number
+  diff_turn_count?: number
+  summary_up_to?: string
+  previous_diff_start?: string
+  previous_diff_end?: string
+  running_snapshot_start?: string
+  running_snapshot_end?: string
+  compact_waiting?: boolean
+}
+
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   name: "Sync",
   init: () => {
@@ -55,6 +76,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       session: Session[]
       session_status: {
         [sessionID: string]: SessionStatus
+      }
+      secretary_status: {
+        [sessionID: string]: SecretaryStatusInfo
       }
       session_diff: {
         [sessionID: string]: Snapshot.FileDiff[]
@@ -95,6 +119,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       provider_default: {},
       session: [],
       session_status: {},
+      secretary_status: {},
       session_diff: {},
       todo: {},
       message: {},
@@ -247,6 +272,18 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
         case "session.status": {
           setStore("session_status", event.properties.sessionID, event.properties.status)
+          break
+        }
+
+        case "session.next.secretary.started":
+        case "session.next.secretary.retrying":
+        case "session.next.secretary.succeeded":
+        case "session.next.secretary.failed":
+        case "session.next.secretary.compact.waiting":
+        case "session.next.secretary.compact.degraded":
+        case "session.next.secretary.compact.started":
+        case "session.next.secretary.compact.switched": {
+          setStore("secretary_status", event.properties.sessionID, reconcile(event.properties))
           break
         }
 

@@ -214,3 +214,61 @@ test("compaction events reduce to compaction message", () => {
     time: { created: DateTime.makeUnsafe(1) },
   })
 })
+
+test("secretary status events do not reduce to classic compaction messages", () => {
+  const state: SessionMessageUpdater.MemoryState = { messages: [] }
+  const sessionID = SessionID.make("session")
+
+  for (const event of [
+    {
+      id: EventV2.ID.create(),
+      type: "session.next.secretary.started",
+      data: { sessionID, timestamp: DateTime.makeUnsafe(1), status: "running" },
+    },
+    {
+      id: EventV2.ID.create(),
+      type: "session.next.secretary.retrying",
+      data: { sessionID, timestamp: DateTime.makeUnsafe(2), status: "retrying", retry_count: 1, last_error: "retry" },
+    },
+    {
+      id: EventV2.ID.create(),
+      type: "session.next.secretary.succeeded",
+      data: { sessionID, timestamp: DateTime.makeUnsafe(3), status: "idle", retry_count: 0 },
+    },
+    {
+      id: EventV2.ID.create(),
+      type: "session.next.secretary.failed",
+      data: { sessionID, timestamp: DateTime.makeUnsafe(4), status: "error", retry_count: 3, last_error: "failed" },
+    },
+    {
+      id: EventV2.ID.create(),
+      type: "session.next.secretary.compact.waiting",
+      data: { sessionID, timestamp: DateTime.makeUnsafe(5), status: "compacting" },
+    },
+    {
+      id: EventV2.ID.create(),
+      type: "session.next.secretary.compact.degraded",
+      data: { sessionID, timestamp: DateTime.makeUnsafe(6), status: "compacting", payload_degraded: true },
+    },
+    {
+      id: EventV2.ID.create(),
+      type: "session.next.secretary.compact.started",
+      data: { sessionID, timestamp: DateTime.makeUnsafe(7), status: "compacting" },
+    },
+    {
+      id: EventV2.ID.create(),
+      type: "session.next.secretary.compact.switched",
+      data: {
+        sessionID,
+        timestamp: DateTime.makeUnsafe(8),
+        status: "idle",
+        payload_degraded: false,
+        new_session_id: SessionID.make("new-session"),
+      },
+    },
+  ] satisfies SessionEvent.Event[]) {
+    SessionMessageUpdater.update(SessionMessageUpdater.memory(state), event)
+  }
+
+  expect(state.messages).toEqual([])
+})

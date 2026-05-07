@@ -21,6 +21,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { fn } from "@/util/fn"
 import { EventV2 } from "@/v2/event"
 import { SessionEvent } from "@/v2/session-event"
+import { SecretaryCompaction } from "./secretary-compaction"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -204,6 +205,12 @@ export interface Interface {
     auto: boolean
     overflow?: boolean
   }) => Effect.Effect<void>
+  readonly manual: (input: {
+    sessionID: SessionID
+    agent: string
+    model: { providerID: ProviderID; modelID: ModelID }
+    auto?: boolean
+  }) => Effect.Effect<true | { sessionID: SessionID }>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionCompaction") {}
@@ -218,6 +225,7 @@ export const layer: Layer.Layer<
   | Plugin.Service
   | SessionProcessor.Service
   | Provider.Service
+  | SecretaryCompaction.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -228,6 +236,7 @@ export const layer: Layer.Layer<
     const plugin = yield* Plugin.Service
     const processors = yield* SessionProcessor.Service
     const provider = yield* Provider.Service
+    const secretary = yield* SecretaryCompaction.Service
 
     const isOverflow = Effect.fn("SessionCompaction.isOverflow")(function* (input: {
       tokens: MessageV2.Assistant["tokens"]
@@ -607,17 +616,65 @@ export const layer: Layer.Layer<
       })
     })
 
+    const manual = Effect.fn("SessionCompaction.manual")(function* (input: {
+      sessionID: SessionID
+      agent: string
+      model: { providerID: ProviderID; modelID: ModelID }
+      auto?: boolean
+    }) {
+      const cfg = yield* config.get()
+      const strategy = cfg.compaction?.strategy
+
+      if (!strategy || strategy === "classic") {
+        yield* create({
+          sessionID: input.sessionID,
+          agent: input.agent,
+          model: input.model,
+          auto: input.auto ?? false,
+        })
+        return true
+      }
+
+      const msgs = yield* session.messages({ sessionID: input.sessionID })
+      const userMsg = msgs.findLast((m) => m.info.role === "user")
+      if (!userMsg || userMsg.info.role !== "user") {
+        yield* create({
+          sessionID: input.sessionID,
+          agent: input.agent,
+          model: input.model,
+          auto: input.auto ?? false,
+        })
+        return true
+      }
+
+      const model = input.model
+        ? yield* provider.getModel(input.model.providerID, input.model.modelID)
+        : yield* provider.getModel(userMsg.info.model.providerID, userMsg.info.model.modelID)
+
+      const result = yield* secretary.manualCompact({
+        sessionID: input.sessionID,
+        messages: msgs,
+        user: userMsg.info,
+        model,
+      })
+
+      if (result.type === "switched") return { sessionID: result.sessionID }
+      return true
+    })
+
     return Service.of({
       isOverflow,
       prune,
       process: processCompaction,
       create,
+      manual,
     })
   }),
 )
 
 export const defaultLayer = Layer.suspend(() =>
   layer.pipe(
+    Layer.provide(SecretaryCompaction.defaultLayer),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionProcessor.defaultLayer),

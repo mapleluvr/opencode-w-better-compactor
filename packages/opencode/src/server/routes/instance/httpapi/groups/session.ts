@@ -18,6 +18,11 @@ import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
 import { ApiNotFoundError } from "../errors"
 import { described } from "./metadata"
 
+const SummarizeResponse = Schema.Union([
+  Schema.Boolean,
+  Schema.Struct({ sessionID: SessionID }),
+]).annotate({ identifier: "SummarizeResponse" })
+
 const root = "/session"
 const QueryBoolean = Schema.Literals(["true", "false"]).pipe(
   Schema.decodeTo(Schema.Boolean, {
@@ -283,7 +288,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.post("summarize", SessionPaths.summarize, {
           params: { sessionID: SessionID },
           payload: SummarizePayload,
-          success: described(Schema.Boolean, "Summarized session"),
+          success: described(SummarizeResponse, "Summarized session"),
           error: [HttpApiError.BadRequest, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({

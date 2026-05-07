@@ -229,6 +229,17 @@ export const Info = Schema.Struct({
       auto: Schema.optional(Schema.Boolean).annotate({
         description: "Enable automatic compaction when context is full (default: true)",
       }),
+      strategy: Schema.optional(Schema.Literals(["classic", "secretary"])),
+      secretary: Schema.optional(
+        Schema.Struct({
+          model: Schema.optional(ConfigModelID),
+          diff_token_threshold: Schema.optional(PositiveInt),
+          diff_turn_threshold: Schema.optional(PositiveInt),
+          context_token_threshold: Schema.optional(PositiveInt),
+          compact_wait_timeout: Schema.optional(PositiveInt),
+          debug: Schema.optional(Schema.Boolean),
+        }),
+      ),
       prune: Schema.optional(Schema.Boolean).annotate({
         description: "Enable pruning of old tool outputs (default: true)",
       }),
