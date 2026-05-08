@@ -2680,6 +2680,8 @@ describe("session.compaction.secretary compact", () => {
             expect(textPart.text).toContain(summaryText)
             expect(textPart.text).toContain("Previous Diff")
             expect(textPart.text).toContain("New Diff")
+            expect(textPart.synthetic).toBe(true)
+            expect(textPart.metadata).toEqual({ compaction_continue: true })
           }
         } finally {
           await rt.dispose()

@@ -2277,3 +2277,94 @@ itSec.live(
     ),
   30_000,
 )
+
+// ─── Secretary switched continues loop on new session ─────────────────
+
+{
+  let switchTargetID: SessionID | undefined
+
+  const switchedMock = Layer.effect(
+    SecretaryCompaction.Service,
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      return SecretaryCompaction.Service.of({
+        afterAssistantComplete: () => Effect.void,
+        beforeModelSend: () =>
+          Effect.gen(function* () {
+            const cont = yield* sessions.create({
+              title: "Continuation",
+              permission: [{ permission: "*", pattern: "*", action: "allow" }],
+            })
+            const msg = yield* sessions.updateMessage({
+              id: MessageID.ascending(),
+              role: "user",
+              sessionID: cont.id,
+              agent: "build",
+              model: ref,
+              time: { created: Date.now() },
+            })
+            yield* sessions.updatePart({
+              id: PartID.ascending(),
+              messageID: msg.id,
+              sessionID: cont.id,
+              type: "text",
+              text: "hello",
+            })
+            const asst: MessageV2.Assistant = {
+              id: MessageID.ascending(),
+              role: "assistant",
+              parentID: msg.id,
+              sessionID: cont.id,
+              mode: "build",
+              agent: "build",
+              cost: 0,
+              path: { cwd: "/tmp", root: "/tmp" },
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              modelID: ref.modelID,
+              providerID: ref.providerID,
+              finish: "stop",
+              time: { created: Date.now() },
+            }
+            yield* sessions.updateMessage(asst)
+            yield* sessions.updatePart({
+              id: PartID.ascending(),
+              messageID: asst.id,
+              sessionID: cont.id,
+              type: "text",
+              text: "ok",
+            })
+            switchTargetID = cont.id
+            return { type: "switched" as const, sessionID: cont.id }
+          }),
+        manualCompact: () => Effect.succeed({ type: "continue" as const }),
+      })
+    }),
+  ).pipe(Layer.provide(Session.defaultLayer))
+
+  const itSwitched = testEffect(makeHttp(switchedMock))
+
+  itSwitched.live(
+    "secretary switched continues loop on new session",
+    () =>
+      provideTmpdirServer(
+        Effect.fnUntraced(function* ({ llm }) {
+          const sessions = yield* Session.Service
+          const prompt = yield* SessionPrompt.Service
+
+          const initial = yield* sessions.create({
+            title: "Initial",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          })
+          yield* user(initial.id, "hello")
+
+          const result = yield* prompt.loop({ sessionID: initial.id })
+
+          expect(switchTargetID).toBeDefined()
+          expect(result.info.sessionID).toBe(switchTargetID!)
+          expect(yield* llm.calls).toBe(0)
+        }),
+        { git: true, config: providerCfg },
+      ),
+    30_000,
+  )
+}
