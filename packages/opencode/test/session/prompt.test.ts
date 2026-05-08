@@ -2152,6 +2152,7 @@ itSecAfter.live(
       }),
       { git: true, config: secCfg },
     ),
+  30_000,
 )
 }
 
@@ -2187,6 +2188,7 @@ itSec.live(
       }),
       { git: true, config: secCfg },
     ),
+  30_000,
 )
 
 itSec.live(
@@ -2231,6 +2233,7 @@ itSec.live(
       }),
       { git: true, config: secCfg },
     ),
+  30_000,
 )
 
 itSec.live(

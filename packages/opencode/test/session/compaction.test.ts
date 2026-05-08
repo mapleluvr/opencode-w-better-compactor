@@ -48,6 +48,12 @@ const svc = {
   create(input?: SessionNs.CreateInput) {
     return run(SessionNs.Service.use((svc) => svc.create(input)))
   },
+  get(sessionID: SessionID) {
+    return run(SessionNs.Service.use((svc) => svc.get(sessionID)))
+  },
+  list(input?: SessionNs.ListInput) {
+    return run(SessionNs.Service.use((svc) => svc.list(input)))
+  },
   messages(input: z.output<typeof SessionNs.MessagesInput.zod>) {
     return run(SessionNs.Service.use((svc) => svc.messages(input)))
   },
@@ -3131,6 +3137,15 @@ describe("session.compaction.secretary compact", () => {
           if (result.type !== "switched") return
           expect(result.sessionID).toBeTruthy()
           expect(result.sessionID).not.toBe(session.id)
+
+          const newSession = await svc.get(result.sessionID)
+          expect(newSession.parentID).toBeUndefined()
+          expect(newSession.model?.id).toBe(ref.modelID)
+          expect(newSession.model?.providerID).toBe(ref.providerID)
+
+          const roots = await svc.list({ roots: true })
+          expect(roots.map((item) => item.id)).toContain(session.id)
+          expect(roots.map((item) => item.id)).toContain(result.sessionID)
 
           const oldMsgs = await svc.messages({ sessionID: session.id })
           expect(oldMsgs).toHaveLength(4)
