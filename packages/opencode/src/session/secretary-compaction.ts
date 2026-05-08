@@ -563,9 +563,12 @@ export const layer = Layer.effect(
       }
 
       const newSession = yield* session.create({
-        parentID: input.sessionID,
         agent: input.user.agent,
-        model: input.user.model,
+        model: {
+          id: input.user.model.modelID,
+          providerID: input.user.model.providerID,
+          ...(input.user.model.variant !== undefined && { variant: input.user.model.variant }),
+        },
       })
 
       const userMsg = yield* session.updateMessage({
