@@ -17,6 +17,37 @@ export function compactionControlDescriptions(config: { auto?: boolean; strategy
   }
 }
 
+export function formatStatus(data: {
+  status: "idle" | "running" | "retrying" | "error" | "compacting"
+  new_session_id?: string
+  retry_count?: number
+  last_success_at?: number
+  last_error?: string
+  payload_degraded?: boolean
+  compact_waiting?: boolean
+  summary_up_to?: string
+  previous_diff_start?: string
+  previous_diff_end?: string
+  running_snapshot_start?: string
+  running_snapshot_end?: string
+}) {
+  const lines = [
+    `Status: ${data.status}`,
+    `Retry count: ${data.retry_count ?? 0}`,
+  ]
+  if (data.new_session_id) lines.push(`New session: ${data.new_session_id}`)
+  if (data.last_success_at) lines.push(`Last success: ${new Date(data.last_success_at).toLocaleString()}`)
+  if (data.last_error) lines.push(`Last error: ${data.last_error}`)
+  if (data.payload_degraded) lines.push("Payload degraded: true")
+  if (data.compact_waiting) lines.push("Compact waiting: true")
+  if (data.summary_up_to) lines.push(`Summary up to: ${data.summary_up_to}`)
+  if (data.previous_diff_start) lines.push(`Previous diff start: ${data.previous_diff_start}`)
+  if (data.previous_diff_end) lines.push(`Previous diff end: ${data.previous_diff_end}`)
+  if (data.running_snapshot_start) lines.push(`Running snapshot start: ${data.running_snapshot_start}`)
+  if (data.running_snapshot_end) lines.push(`Running snapshot end: ${data.running_snapshot_end}`)
+  return lines
+}
+
 export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
   const dialog = useDialog()
   const sync = useSync()
@@ -160,27 +191,34 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
     dialog.clear()
   }
 
-  const viewSecretaryStatus = () => {
-    const status = sync.data.secretary_status[props.sessionID]
-    if (!status) {
-      toast.show({ message: "No secretary status available for this session", variant: "warning" })
-      dialog.clear()
+  const viewSecretaryStatus = async () => {
+    const liveStatus = sync.data.secretary_status[props.sessionID]
+    if (liveStatus) {
+      const lines = formatStatus(liveStatus)
+      void DialogPrompt.show(dialog, "Secretary status", {
+        value: lines.join("\n"),
+        description: () => <text>Current secretary status for this session</text>,
+      }).then(() => dialog.clear())
       return
     }
-    const lines = [
-      `Status: ${status.status}`,
-      `Retry count: ${status.retry_count ?? 0}`,
-    ]
-    if (status.last_success_at) lines.push(`Last success: ${new Date(status.last_success_at).toLocaleString()}`)
-    if (status.last_error) lines.push(`Last error: ${status.last_error}`)
-    if (status.payload_degraded) lines.push("Payload degraded: true")
-    if (status.compact_waiting) lines.push("Compact waiting: true")
-    if (status.new_session_id) lines.push(`New session: ${status.new_session_id}`)
 
-    void DialogPrompt.show(dialog, "Secretary status", {
-      value: lines.join("\n"),
-      description: () => <text>Current secretary status for this session</text>,
-    }).then(() => dialog.clear())
+    try {
+      const result = await sdk.client.session.secretaryStatus({ sessionID: props.sessionID })
+      const fetched = result.data
+      if (!fetched) {
+        toast.show({ message: "No secretary status available for this session", variant: "warning" })
+        dialog.clear()
+        return
+      }
+      const lines = formatStatus(fetched)
+      void DialogPrompt.show(dialog, "Secretary status", {
+        value: lines.join("\n"),
+        description: () => <text>Current secretary status for this session</text>,
+      }).then(() => dialog.clear())
+    } catch {
+      toast.show({ message: "Failed to fetch secretary status", variant: "error" })
+      dialog.clear()
+    }
   }
 
   const controls = createMemo(() => compactionControlDescriptions(config()))

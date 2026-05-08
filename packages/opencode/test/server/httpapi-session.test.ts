@@ -16,7 +16,7 @@ import { Session } from "@/session/session"
 import { MessageID, PartID, SessionID, type SessionID as SessionIDType } from "../../src/session/schema"
 import { MessageV2 } from "../../src/session/message-v2"
 import { Database } from "@/storage/db"
-import { SessionMessageTable, SessionTable } from "@/session/session.sql"
+import { SecretaryStateTable, SessionMessageTable, SessionTable } from "@/session/session.sql"
 import { SessionMessage } from "../../src/v2/session-message"
 import { Modelv2 } from "../../src/v2/model"
 import * as DateTime from "effect/DateTime"
@@ -550,6 +550,97 @@ describe("session HttpApi", () => {
             },
           ),
         ).toBe(true)
+      }),
+    ),
+  )
+
+  it.live(
+    "returns null when secretary status does not exist, and returns persisted state after insertion",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) =>
+      Effect.gen(function* () {
+        const headers = { "x-opencode-directory": tmp.path }
+        const session = yield* createSession(tmp.path, { title: "secretary-test" })
+        const route = pathFor(SessionPaths.secretaryStatus, { sessionID: session.id })
+
+        const emptyResponse = yield* request(route, { headers })
+        expect(emptyResponse.status).toBe(200)
+        expect(yield* responseJson(emptyResponse)).toBeNull()
+
+        yield* Effect.promise(() =>
+          WithInstance.provide({
+            directory: tmp.path,
+            fn: () =>
+              Effect.sync(() =>
+                Database.use((db) => {
+                  const state = {
+                    session_id: session.id,
+                    version: 1,
+                    status: "compacting" as const,
+                    retry_count: 2,
+                    last_error: "test error",
+                    last_success_at: 1234567890,
+                    payload_degraded: true,
+                    classic: false,
+                    summary_up_to: "msg-1",
+                    previous_diff_start: "msg-10",
+                    previous_diff_end: "msg-20",
+                    running_snapshot_start: "msg-30",
+                    running_snapshot_end: "msg-40",
+                    time_created: Date.now(),
+                    time_updated: Date.now(),
+                  }
+                  return db
+                    .insert(SecretaryStateTable)
+                    // @ts-expect-error Drizzle excludes FK primary keys from $inferInsert
+                    .values(state)
+                    .run()
+                }),
+              ).pipe(Effect.runPromise),
+          }),
+        )
+
+        const filledResponse = yield* request(route, { headers })
+        expect(filledResponse.status).toBe(200)
+        const body = yield* responseJson(filledResponse)
+        expect(body).toMatchObject({
+          sessionID: session.id,
+          status: "compacting",
+          retry_count: 2,
+          last_error: "test error",
+          last_success_at: 1234567890,
+          payload_degraded: true,
+          summary_up_to: "msg-1",
+          previous_diff_start: "msg-10",
+          previous_diff_end: "msg-20",
+          running_snapshot_start: "msg-30",
+          running_snapshot_end: "msg-40",
+          compact_waiting: true,
+        })
+        expect(body.version).toBeUndefined()
+        expect(body.classic).toBeUndefined()
+        expect(body.new_diff_start).toBeUndefined()
+        expect(body.summary).toBeUndefined()
+
+        yield* Effect.promise(() =>
+          WithInstance.provide({
+            directory: tmp.path,
+            fn: () =>
+              Effect.sync(() =>
+                Database.use((db) =>
+                  db
+                    .update(SecretaryStateTable)
+                    .set({ status: "idle" })
+                    .where(eq(SecretaryStateTable.session_id, session.id))
+                    .run(),
+                ),
+              ).pipe(Effect.runPromise),
+          }),
+        )
+
+        const idleResponse = yield* request(route, { headers })
+        expect(idleResponse.status).toBe(200)
+        const idleBody = yield* responseJson(idleResponse)
+        expect(idleBody.compact_waiting).toBe(false)
       }),
     ),
   )
