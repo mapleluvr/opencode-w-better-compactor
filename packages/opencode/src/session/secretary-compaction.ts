@@ -587,6 +587,7 @@ export const layer = Layer.effect(
         type: "text",
         text: fullPayload,
         synthetic: true,
+        metadata: { compaction_continue: true },
         time: {
           start: Date.now(),
           end: Date.now(),

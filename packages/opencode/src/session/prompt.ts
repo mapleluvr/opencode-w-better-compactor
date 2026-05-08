@@ -1531,6 +1531,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             model,
           })
 
+          let switchedTo: SessionID | undefined
+
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
@@ -1594,6 +1596,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               model,
             })
             if (compact.type === "switched") {
+              switchedTo = compact.sessionID
               return "break" as const
             }
 
@@ -1641,6 +1644,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }
             return "continue" as const
           }).pipe(Effect.ensuring(instruction.clear(handle.message.id)))
+          if (switchedTo) return yield* loop({ sessionID: switchedTo })
           if (outcome === "break") break
           continue
         }
