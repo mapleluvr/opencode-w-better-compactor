@@ -73,6 +73,25 @@ export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
 
+const SecretaryStatusSchema = Schema.Literals(["idle", "running", "retrying", "error", "compacting"])
+
+export const SecretaryStatusResponse = Schema.NullOr(
+  Schema.Struct({
+    sessionID: SessionID,
+    status: SecretaryStatusSchema,
+    retry_count: Schema.Number,
+    payload_degraded: Schema.Boolean,
+    last_error: Schema.optional(Schema.String),
+    last_success_at: Schema.optional(Schema.Number),
+    summary_up_to: Schema.optional(Schema.String),
+    previous_diff_start: Schema.optional(Schema.String),
+    previous_diff_end: Schema.optional(Schema.String),
+    running_snapshot_start: Schema.optional(Schema.String),
+    running_snapshot_end: Schema.optional(Schema.String),
+    compact_waiting: Schema.Boolean,
+  }),
+).annotate({ identifier: "SecretaryStatusResponse" })
+
 export const SessionPaths = {
   list: root,
   status: `${root}/status`,
@@ -96,6 +115,7 @@ export const SessionPaths = {
   shell: `${root}/:sessionID/shell`,
   revert: `${root}/:sessionID/revert`,
   unrevert: `${root}/:sessionID/unrevert`,
+  secretaryStatus: `${root}/:sessionID/secretary-status`,
   permissions: `${root}/:sessionID/permissions/:permissionID`,
   deleteMessage: `${root}/:sessionID/message/:messageID`,
   deletePart: `${root}/:sessionID/message/:messageID/part/:partID`,
@@ -368,6 +388,16 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.unrevert",
             summary: "Restore reverted messages",
             description: "Restore all previously reverted messages in a session.",
+          }),
+        ),
+        HttpApiEndpoint.get("secretaryStatus", SessionPaths.secretaryStatus, {
+          params: { sessionID: SessionID },
+          success: described(SecretaryStatusResponse, "Secretary status"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.secretaryStatus",
+            summary: "Get secretary status",
+            description: "Retrieve the persisted secretary compaction status for a session.",
           }),
         ),
         HttpApiEndpoint.post("permissionRespond", SessionPaths.permissions, {

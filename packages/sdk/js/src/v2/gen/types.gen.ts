@@ -1410,6 +1410,21 @@ export type SubtaskPartInput = {
     command?: string;
 };
 
+export type SecretaryStatusResponse = {
+    sessionID: string;
+    status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+    retry_count: number;
+    payload_degraded: boolean;
+    last_error?: string;
+    last_success_at?: number;
+    summary_up_to?: string;
+    previous_diff_start?: string;
+    previous_diff_end?: string;
+    running_snapshot_start?: string;
+    running_snapshot_end?: string;
+    compact_waiting: boolean;
+} | null;
+
 export type V2SessionsResponse = {
     items: Array<SessionInfo>;
     cursor: {
@@ -5929,6 +5944,27 @@ export type SessionUnrevertResponses = {
 };
 
 export type SessionUnrevertResponse = SessionUnrevertResponses[keyof SessionUnrevertResponses];
+
+export type SessionSecretaryStatusData = {
+    body?: never;
+    path: {
+        sessionID: string;
+    };
+    query?: {
+        directory?: string;
+        workspace?: string;
+    };
+    url: '/session/{sessionID}/secretary-status';
+};
+
+export type SessionSecretaryStatusResponses = {
+    /**
+     * Secretary status
+     */
+    200: SecretaryStatusResponse;
+};
+
+export type SessionSecretaryStatusResponse = SessionSecretaryStatusResponses[keyof SessionSecretaryStatusResponses];
 
 export type PermissionRespondData = {
     body?: {
