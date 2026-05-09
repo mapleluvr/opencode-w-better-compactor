@@ -1644,7 +1644,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }
             return "continue" as const
           }).pipe(Effect.ensuring(instruction.clear(handle.message.id)))
-          if (switchedTo) return yield* loop({ sessionID: switchedTo })
+          if (switchedTo) {
+            yield* sessions.removeMessage({ sessionID, messageID: handle.message.id })
+            return yield* loop({ sessionID: switchedTo })
+          }
           if (outcome === "break") break
           continue
         }

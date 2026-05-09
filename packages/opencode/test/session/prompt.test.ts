@@ -2358,10 +2358,13 @@ itSec.live(
           yield* user(initial.id, "hello")
 
           const result = yield* prompt.loop({ sessionID: initial.id })
+          const oldMessages = yield* sessions.messages({ sessionID: initial.id })
 
           expect(switchTargetID).toBeDefined()
           expect(result.info.sessionID).toBe(switchTargetID!)
           expect(yield* llm.calls).toBe(0)
+          expect(oldMessages).toHaveLength(1)
+          expect(oldMessages[0]?.info.role).toBe("user")
         }),
         { git: true, config: providerCfg },
       ),
