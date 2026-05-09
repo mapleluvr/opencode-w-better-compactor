@@ -10,6 +10,76 @@ interface DialogCompactionSettingsProps {
   sessionID: string
 }
 
+const DEFAULT_DIFF_TOKEN_THRESHOLD = 100_000
+const DEFAULT_DIFF_TURN_THRESHOLD = 20
+const DEFAULT_CONTEXT_TOKEN_THRESHOLD = 120_000
+
+export function compactionControlDescriptions(config: { auto?: boolean; strategy?: "classic" | "secretary" }) {
+  return {
+    auto: config.auto === false ? "Disabled" : "Enabled",
+    strategy: (config.strategy ?? "classic") === "secretary" ? "Secretary" : "Classic",
+  }
+}
+
+export function secretaryControlDescriptions(secretary?: {
+  model?: string
+  diff_token_threshold?: number
+  diff_turn_threshold?: number
+  context_token_threshold?: number
+  compact_wait_timeout?: number
+}) {
+  return {
+    model: secretary?.model,
+    diffTokenThreshold: String(secretary?.diff_token_threshold ?? DEFAULT_DIFF_TOKEN_THRESHOLD),
+    diffTurnThreshold: String(secretary?.diff_turn_threshold ?? DEFAULT_DIFF_TURN_THRESHOLD),
+    contextTokenThreshold: String(secretary?.context_token_threshold ?? DEFAULT_CONTEXT_TOKEN_THRESHOLD),
+    compactWaitTimeout: secretary?.compact_wait_timeout != null ? String(secretary.compact_wait_timeout) : undefined,
+  }
+}
+
+export async function updateCompactionSettings(input: {
+  compaction: NonNullable<ReturnType<typeof useSync>["data"]["config"]["compaction"]>
+  dialog: Pick<DialogContext, "clear">
+  toast: Pick<ReturnType<typeof useToast>, "show">
+  update: (config: { compaction: NonNullable<ReturnType<typeof useSync>["data"]["config"]["compaction"]> }) => Promise<unknown>
+}) {
+  input.dialog.clear()
+  await input.update({ compaction: input.compaction }).catch(() =>
+    input.toast.show({ message: "Failed to update config", variant: "error" }),
+  )
+}
+
+export function formatStatus(data: {
+  status: "idle" | "running" | "retrying" | "error" | "compacting"
+  new_session_id?: string
+  retry_count?: number
+  last_success_at?: number
+  last_error?: string
+  payload_degraded?: boolean
+  compact_waiting?: boolean
+  summary_up_to?: string
+  previous_diff_start?: string
+  previous_diff_end?: string
+  running_snapshot_start?: string
+  running_snapshot_end?: string
+}) {
+  const lines = [
+    `Status: ${data.status}`,
+    `Retry count: ${data.retry_count ?? 0}`,
+  ]
+  if (data.new_session_id) lines.push(`New session: ${data.new_session_id}`)
+  if (data.last_success_at) lines.push(`Last success: ${new Date(data.last_success_at).toLocaleString()}`)
+  if (data.last_error) lines.push(`Last error: ${data.last_error}`)
+  if (data.payload_degraded) lines.push("Payload degraded: true")
+  if (data.compact_waiting) lines.push("Compact waiting: true")
+  if (data.summary_up_to) lines.push(`Summary up to: ${data.summary_up_to}`)
+  if (data.previous_diff_start) lines.push(`Previous diff start: ${data.previous_diff_start}`)
+  if (data.previous_diff_end) lines.push(`Previous diff end: ${data.previous_diff_end}`)
+  if (data.running_snapshot_start) lines.push(`Running snapshot start: ${data.running_snapshot_start}`)
+  if (data.running_snapshot_end) lines.push(`Running snapshot end: ${data.running_snapshot_end}`)
+  return lines
+}
+
 export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
   const dialog = useDialog()
   const sync = useSync()
@@ -18,41 +88,40 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
 
   const config = createMemo(() => sync.data.config.compaction ?? {})
   const sec = createMemo(() => config().secretary)
+  const secretary = createMemo(() => secretaryControlDescriptions(sec()))
 
   const strategy = createMemo(() => config().strategy ?? "classic")
 
-  const diffTokenDesc = createMemo(() =>
-    sec()?.diff_token_threshold != null ? String(sec()!.diff_token_threshold) : undefined,
-  )
-  const diffTurnDesc = createMemo(() =>
-    sec()?.diff_turn_threshold != null ? String(sec()!.diff_turn_threshold) : undefined,
-  )
-  const contextTokenDesc = createMemo(() =>
-    sec()?.context_token_threshold != null ? String(sec()!.context_token_threshold) : undefined,
-  )
-  const compactWaitTimeoutDesc = createMemo(() =>
-    sec()?.compact_wait_timeout != null ? String(sec()!.compact_wait_timeout) : undefined,
-  )
-
   const enableClassic = async () => {
-    await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, auto: true, strategy: "classic" } } })
-      .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
-    dialog.clear()
+    await updateCompactionSettings({
+      compaction: { ...sync.data.config.compaction, strategy: "classic" },
+      dialog,
+      toast,
+      update: (config) => sdk.client.config.update({ config }),
+    })
   }
 
   const enableSecretary = async () => {
-    await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, auto: true, strategy: "secretary" } } })
-      .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
-    dialog.clear()
+    await updateCompactionSettings({
+      compaction: { ...sync.data.config.compaction, strategy: "secretary" },
+      dialog,
+      toast,
+      update: (config) => sdk.client.config.update({ config }),
+    })
   }
 
-  const disableAuto = async () => {
-    await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, auto: false } } })
-      .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
-    dialog.clear()
+  const toggleAuto = async () => {
+    await updateCompactionSettings({
+      compaction: { ...sync.data.config.compaction, auto: config().auto === false },
+      dialog,
+      toast,
+      update: (config) => sdk.client.config.update({ config }),
+    })
+  }
+
+  const toggleStrategy = async () => {
+    if (strategy() === "secretary") return enableClassic()
+    return enableSecretary()
   }
 
   const setSecretaryModel = async (dialog: DialogContext) => {
@@ -66,18 +135,19 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
       toast.show({ message: "Model must include provider and model, separated by /", variant: "error" })
       return
     }
-    await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, secretary: { ...sec(), model: value } } } })
-      .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
-    dialog.clear()
+    await updateCompactionSettings({
+      compaction: { ...sync.data.config.compaction, secretary: { ...sec(), model: value } },
+      dialog,
+      toast,
+      update: (config) => sdk.client.config.update({ config }),
+    })
   }
 
   const setDiffTokenThreshold = async (dialog: DialogContext) => {
-    const current = sec()?.diff_token_threshold
     const value = await DialogPrompt.show(dialog, "Diff token threshold (p)", {
-      placeholder: String(current ?? ""),
+      placeholder: secretary().diffTokenThreshold,
       description: () => <text>Trigger Secretary Action when new diff tokens exceed this</text>,
-      value: current != null ? String(current) : "",
+      value: secretary().diffTokenThreshold,
     })
     if (!value) return
     const num = parseInt(value, 10)
@@ -85,18 +155,19 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
       toast.show({ message: "Enter a positive integer", variant: "error" })
       return
     }
-    await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, secretary: { ...sec(), diff_token_threshold: num } } } })
-      .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
-    dialog.clear()
+    await updateCompactionSettings({
+      compaction: { ...sync.data.config.compaction, secretary: { ...sec(), diff_token_threshold: num } },
+      dialog,
+      toast,
+      update: (config) => sdk.client.config.update({ config }),
+    })
   }
 
   const setDiffTurnThreshold = async (dialog: DialogContext) => {
-    const current = sec()?.diff_turn_threshold
     const value = await DialogPrompt.show(dialog, "Diff turn threshold (q)", {
-      placeholder: String(current ?? ""),
+      placeholder: secretary().diffTurnThreshold,
       description: () => <text>Trigger Secretary Action when new diff turns exceed this</text>,
-      value: current != null ? String(current) : "",
+      value: secretary().diffTurnThreshold,
     })
     if (!value) return
     const num = parseInt(value, 10)
@@ -104,18 +175,19 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
       toast.show({ message: "Enter a positive integer", variant: "error" })
       return
     }
-    await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, secretary: { ...sec(), diff_turn_threshold: num } } } })
-      .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
-    dialog.clear()
+    await updateCompactionSettings({
+      compaction: { ...sync.data.config.compaction, secretary: { ...sec(), diff_turn_threshold: num } },
+      dialog,
+      toast,
+      update: (config) => sdk.client.config.update({ config }),
+    })
   }
 
   const setContextTokenThreshold = async (dialog: DialogContext) => {
-    const current = sec()?.context_token_threshold
     const value = await DialogPrompt.show(dialog, "Context token threshold (r)", {
-      placeholder: String(current ?? ""),
+      placeholder: secretary().contextTokenThreshold,
       description: () => <text>Trigger Compact Action when context tokens exceed this</text>,
-      value: current != null ? String(current) : "",
+      value: secretary().contextTokenThreshold,
     })
     if (!value) return
     const num = parseInt(value, 10)
@@ -123,10 +195,12 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
       toast.show({ message: "Enter a positive integer", variant: "error" })
       return
     }
-    await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, secretary: { ...sec(), context_token_threshold: num } } } })
-      .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
-    dialog.clear()
+    await updateCompactionSettings({
+      compaction: { ...sync.data.config.compaction, secretary: { ...sec(), context_token_threshold: num } },
+      dialog,
+      toast,
+      update: (config) => sdk.client.config.update({ config }),
+    })
   }
 
   const setCompactWaitTimeout = async (dialog: DialogContext) => {
@@ -142,91 +216,90 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
       toast.show({ message: "Enter a positive integer", variant: "error" })
       return
     }
-    await sdk.client.config
-      .update({ config: { compaction: { ...sync.data.config.compaction, secretary: { ...sec(), compact_wait_timeout: num } } } })
-      .catch(() => toast.show({ message: "Failed to update config", variant: "error" }))
-    dialog.clear()
+    await updateCompactionSettings({
+      compaction: { ...sync.data.config.compaction, secretary: { ...sec(), compact_wait_timeout: num } },
+      dialog,
+      toast,
+      update: (config) => sdk.client.config.update({ config }),
+    })
   }
 
-  const viewSecretaryStatus = () => {
-    const status = sync.data.secretary_status[props.sessionID]
-    if (!status) {
-      toast.show({ message: "No secretary status available for this session", variant: "warning" })
-      dialog.clear()
+  const viewSecretaryStatus = async () => {
+    const liveStatus = sync.data.secretary_status[props.sessionID]
+    if (liveStatus) {
+      const lines = formatStatus(liveStatus)
+      void DialogPrompt.show(dialog, "Secretary status", {
+        value: lines.join("\n"),
+        description: () => <text>Current secretary status for this session</text>,
+      }).then(() => dialog.clear())
       return
     }
-    const lines = [
-      `Status: ${status.status}`,
-      `Retry count: ${status.retry_count ?? 0}`,
-    ]
-    if (status.last_success_at) lines.push(`Last success: ${new Date(status.last_success_at).toLocaleString()}`)
-    if (status.last_error) lines.push(`Last error: ${status.last_error}`)
-    if (status.payload_degraded) lines.push("Payload degraded: true")
-    if (status.compact_waiting) lines.push("Compact waiting: true")
-    if (status.new_session_id) lines.push(`New session: ${status.new_session_id}`)
 
-    void DialogPrompt.show(dialog, "Secretary status", {
-      value: lines.join("\n"),
-      description: () => <text>Current secretary status for this session</text>,
-    }).then(() => dialog.clear())
+    try {
+      const result = await sdk.client.session.secretaryStatus({ sessionID: props.sessionID })
+      const fetched = result.data
+      if (!fetched) {
+        toast.show({ message: "No secretary status available for this session", variant: "warning" })
+        dialog.clear()
+        return
+      }
+      const lines = formatStatus(fetched)
+      void DialogPrompt.show(dialog, "Secretary status", {
+        value: lines.join("\n"),
+        description: () => <text>Current secretary status for this session</text>,
+      }).then(() => dialog.clear())
+    } catch {
+      toast.show({ message: "Failed to fetch secretary status", variant: "error" })
+      dialog.clear()
+    }
   }
 
-  const current = strategy() === "secretary"
-    ? "Secretary auto compaction"
-    : strategy() === "classic"
-      ? "Classic auto compaction"
-      : "Classic auto compaction"
+  const controls = createMemo(() => compactionControlDescriptions(config()))
 
   return (
     <DialogSelect
       title="Compaction settings"
       options={[
         {
-          title: "Classic auto compaction",
-          value: "classic",
-          description: config().auto ? "active" : "inactive (auto disabled)",
-          onSelect: enableClassic,
+          title: "Auto compaction",
+          value: "auto",
+          description: controls().auto,
+          onSelect: toggleAuto,
         },
         {
-          title: "Secretary auto compaction",
-          value: "secretary",
-          description: config().auto ? "active" : "inactive (auto disabled)",
-          onSelect: enableSecretary,
-        },
-        {
-          title: "Disable auto compaction",
-          value: "disable",
-          description: strategy(),
-          onSelect: disableAuto,
+          title: "Compaction strategy",
+          value: "strategy",
+          description: controls().strategy,
+          onSelect: toggleStrategy,
         },
         {
           title: "Secretary model",
           value: "model",
-          description: sec()?.model,
+          description: secretary().model,
           onSelect: setSecretaryModel,
         },
         {
           title: "Diff token threshold (p)",
           value: "diff_token_threshold",
-          description: diffTokenDesc(),
+          description: secretary().diffTokenThreshold,
           onSelect: setDiffTokenThreshold,
         },
         {
           title: "Diff turn threshold (q)",
           value: "diff_turn_threshold",
-          description: diffTurnDesc(),
+          description: secretary().diffTurnThreshold,
           onSelect: setDiffTurnThreshold,
         },
         {
           title: "Context token threshold (r)",
           value: "context_token_threshold",
-          description: contextTokenDesc(),
+          description: secretary().contextTokenThreshold,
           onSelect: setContextTokenThreshold,
         },
         {
           title: "Compact wait timeout (ms)",
           value: "compact_wait_timeout",
-          description: compactWaitTimeoutDesc(),
+          description: secretary().compactWaitTimeout,
           onSelect: setCompactWaitTimeout,
         },
         {
@@ -235,7 +308,6 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
           onSelect: viewSecretaryStatus,
         },
       ]}
-      current={current}
     />
   )
 }

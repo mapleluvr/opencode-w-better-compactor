@@ -46,7 +46,7 @@ describe("config HttpApi", () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ username: "patched-user", formatter: false, lsp: false })
     await disposed
-    expect(await Bun.file(path.join(tmp.path, "config.json")).json()).toMatchObject({
+    expect(await Bun.file(path.join(tmp.path, "opencode.json")).json()).toMatchObject({
       username: "patched-user",
       formatter: false,
       lsp: false,

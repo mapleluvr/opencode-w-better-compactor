@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { testRender } from "@opentui/solid"
 import { createEffect, onMount } from "solid-js"
 import { Global } from "@opencode-ai/core/global"
+import type { Session } from "@opencode-ai/sdk/v2"
 import { ArgsProvider } from "../../../../src/cli/cmd/tui/context/args"
 import { ExitProvider } from "../../../../src/cli/cmd/tui/context/exit"
 import { KVProvider, useKV } from "../../../../src/cli/cmd/tui/context/kv"
@@ -34,6 +35,22 @@ function eventSource(emit?: (handler: Parameters<EventSource["subscribe"]>[0]) =
     subscribe: async (handler) => {
       emit?.(handler)
       return () => {}
+    },
+  }
+}
+
+function sessionInfo(id: string): Session {
+  return {
+    id,
+    slug: id,
+    projectID: "proj_test",
+    directory,
+    path: "packages/opencode",
+    title: id,
+    version: "test",
+    time: {
+      created: 1,
+      updated: 1,
     },
   }
 }
@@ -80,7 +97,31 @@ function createFetch() {
   return { fetch, session }
 }
 
-async function mount(input: { emit?: (handler: Parameters<EventSource["subscribe"]>[0]) => void } = {}) {
+type EventHandler = Parameters<EventSource["subscribe"]>[0]
+
+function controllableEventSource() {
+  let handler: EventHandler | undefined
+  let ready!: () => void
+  const subscribed = new Promise<void>((resolve) => {
+    ready = resolve
+  })
+
+  return {
+    source: {
+      subscribe: async (next) => {
+        handler = next
+        ready()
+        return () => {}
+      },
+    } satisfies EventSource,
+    async emit(event: Parameters<EventHandler>[0]) {
+      await subscribed
+      handler?.(event)
+    },
+  }
+}
+
+async function mount(input: { emit?: (handler: EventHandler) => void; events?: EventSource } = {}) {
   const calls = createFetch()
   let sync!: ReturnType<typeof useSync>
   let kv!: ReturnType<typeof useKV>
@@ -93,7 +134,7 @@ async function mount(input: { emit?: (handler: Parameters<EventSource["subscribe
     <ArgsProvider>
       <ExitProvider>
         <KVProvider>
-          <SDKProvider url="http://test" directory={directory} fetch={calls.fetch} events={eventSource(input.emit)}>
+          <SDKProvider url="http://test" directory={directory} fetch={calls.fetch} events={input.events ?? eventSource(input.emit)}>
             <ProjectProvider>
               <SyncProvider>
                 <Probe
@@ -180,6 +221,34 @@ function RouteProbe(props: { onReady: (ctx: { route: ReturnType<typeof useRoute>
 }
 
 describe("tui sync", () => {
+  test("session.created events add new sessions to the sync store", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const events = controllableEventSource()
+    const { app, sync } = await mount({ events: events.source })
+
+    try {
+      await events.emit({
+        directory,
+        payload: {
+          id: "evt_session_created",
+          type: "session.created",
+          properties: {
+            sessionID: "session-2",
+            info: sessionInfo("session-2"),
+          },
+        },
+      })
+      await wait(() => sync.session.get("session-2") !== undefined)
+      expect(sync.session.get("session-2")?.id).toBe("session-2")
+    } finally {
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
   test("refresh scopes sessions by default and lists project sessions when disabled", async () => {
     const previous = Global.Path.state
     await using tmp = await tmpdir()

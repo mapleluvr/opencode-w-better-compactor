@@ -28,6 +28,7 @@ import { Pty } from "@/pty"
 import { PtyTicket } from "@/pty/ticket"
 import { Question } from "@/question"
 import { Session } from "@/session/session"
+import { SecretaryState } from "@/session/secretary-state"
 import { SessionCompaction } from "@/session/compaction"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
@@ -169,6 +170,7 @@ export function createRoutes(corsOptions?: CorsOptions) {
       PtyTicket.defaultLayer,
       Question.defaultLayer,
       Ripgrep.defaultLayer,
+      SecretaryState.defaultLayer,
       Session.defaultLayer,
       SessionCompaction.defaultLayer,
       SessionPrompt.defaultLayer,

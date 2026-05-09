@@ -102,6 +102,7 @@ type OpenApiSchema = {
   anyOf?: unknown[]
   oneOf?: unknown[]
   properties?: Record<string, unknown>
+  required?: string[]
   type?: string | string[]
 }
 
@@ -230,6 +231,7 @@ describe("HttpApi server", () => {
       "GET /api/session",
       "GET /api/session/{sessionID}/context",
       "GET /api/session/{sessionID}/message",
+      "GET /session/{sessionID}/secretary-status",
       "POST /api/session/{sessionID}/compact",
       "POST /api/session/{sessionID}/prompt",
       "POST /api/session/{sessionID}/wait",
@@ -291,6 +293,30 @@ describe("HttpApi server", () => {
     const sessionUpdateProperties = sessionUpdateSchema?.properties as Record<string, OpenApiSchema> | undefined
     const time = sessionUpdateProperties?.time
     expect(time?.properties?.archived).toEqual({ type: "number" })
+  })
+
+  test("preserves null arm in secretary-status response schema", () => {
+    const effect = effectOpenApi()
+    const responses = effect.paths["/session/{sessionID}/secretary-status"]?.get?.responses
+    expect(responses).toBeTruthy()
+    const response200 = (responses as Record<string, unknown>)["200"]
+    expect(response200).toBeTruthy()
+    const schema = (response200 as { content?: Record<string, { schema?: OpenApiSchema }> })?.content?.["application/json"]?.schema
+    expect(schema).toBeTruthy()
+    const resolved = schema!.$ref
+      ? (effect.components?.schemas as Record<string, OpenApiSchema>)?.[schema!.$ref.replace("#/components/schemas/", "")]
+      : schema
+    const nullArm = resolved?.anyOf?.find(
+      (item) => typeof item === "object" && item !== null && "type" in item && (item as OpenApiSchema).type === "null",
+    )
+    expect(nullArm).toBeTruthy()
+  })
+
+  test("secretary-status response schema requires compact_waiting", () => {
+    const effect = effectOpenApi()
+    const component = (effect.components?.schemas as Record<string, OpenApiSchema>)?.SecretaryStatusResponse
+    expect(component).toBeTruthy()
+    expect(component?.required).toContain("compact_waiting")
   })
 
   test("documents event routes as server-sent events", () => {

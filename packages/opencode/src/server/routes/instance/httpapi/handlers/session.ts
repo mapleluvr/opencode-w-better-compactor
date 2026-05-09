@@ -15,6 +15,7 @@ import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
+import { SecretaryState } from "@/session/secretary-state"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NotFoundError } from "@/storage/storage"
 import { NamedError } from "@opencode-ai/core/util/error"
@@ -52,6 +53,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
+    const secretaryState = yield* SecretaryState.Service
     const bus = yield* Bus.Service
     const scope = yield* Scope.Scope
 
@@ -357,6 +359,27 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* session.updatePart(payload)
     })
 
+    const secretaryStatus = Effect.fn("SessionHttpApi.secretaryStatus")(function* (ctx: {
+      params: { sessionID: SessionID }
+    }) {
+      const info = yield* secretaryState.get(ctx.params.sessionID)
+      if (!info) return null
+      return {
+        sessionID: info.sessionID,
+        status: info.status,
+        retry_count: info.retryCount,
+        payload_degraded: info.payloadDegraded,
+        last_error: info.lastError,
+        last_success_at: info.lastSuccessAt,
+        summary_up_to: info.summaryUpTo,
+        previous_diff_start: info.previousDiffStart,
+        previous_diff_end: info.previousDiffEnd,
+        running_snapshot_start: info.runningSnapshotStart,
+        running_snapshot_end: info.runningSnapshotEnd,
+        compact_waiting: info.status === "compacting",
+      }
+    })
+
     return handlers
       .handle("list", list)
       .handle("status", status)
@@ -385,5 +408,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("deleteMessage", deleteMessage)
       .handle("deletePart", deletePart)
       .handle("updatePart", updatePart)
+      .handle("secretaryStatus", secretaryStatus)
   }),
 )

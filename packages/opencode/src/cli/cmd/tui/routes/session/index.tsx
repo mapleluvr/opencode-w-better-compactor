@@ -91,6 +91,7 @@ import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import { DialogGoUpsell } from "../../component/dialog-go-upsell"
 import { SessionRetry } from "@/session/retry"
 import { getRevertDiffFiles } from "../../util/revert-diff"
+import { userMessageText } from "./user-message-text"
 
 addDefaultParsers(parsers.parsers)
 
@@ -1284,17 +1285,7 @@ function UserMessage(props: {
 }) {
   const ctx = use()
   const local = useLocal()
-  const text = createMemo(() => {
-    const texts = props.parts
-      .map((x) => {
-        if (x.type === "text" && !x.synthetic) {
-          return x.text
-        }
-        return null
-      })
-      .filter(Boolean)
-    return texts.join("\n\n")
-  })
+  const text = createMemo(() => userMessageText(props.parts))
   const files = createMemo(() => props.parts.flatMap((x) => (x.type === "file" ? [x] : [])))
   const { theme } = useTheme()
   const [hover, setHover] = createSignal(false)

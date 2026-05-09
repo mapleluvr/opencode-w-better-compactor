@@ -162,6 +162,15 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
           if (content.schema) content.schema = stripOptionalNull(structuredClone(content.schema))
         }
       }
+      // SecretaryStatusResponse uses Schema.NullOr — endpoint returns 200 with null.
+      // Re-wrap the stripped schema so the SDK exposes the nullable type.
+      if (path === "/session/{sessionID}/secretary-status" && method === "get") {
+        const response = operation.responses?.["200"]
+        const schema = response?.content?.["application/json"]?.schema
+        if (schema) {
+          response!.content!["application/json"]!.schema = { anyOf: [schema, { type: "null" }] }
+        }
+      }
       // Hono applied auth as runtime middleware outside OpenAPI metadata, so the
       // legacy SDK did not expose auth schemes or generated 401 error unions.
       delete operation.security
