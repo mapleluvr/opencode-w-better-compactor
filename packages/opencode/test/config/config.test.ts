@@ -684,6 +684,35 @@ describe("compaction config", () => {
     expect(config.compaction?.secretary?.debug).toBeUndefined()
   })
 
+  test("parses secretary bar density", () => {
+    const config = ConfigParse.effectSchema(
+      Config.Info,
+      {
+        compaction: {
+          strategy: "secretary",
+          secretary_bar: "detailed",
+        },
+      },
+      "test",
+    )
+
+    expect(config.compaction?.secretary_bar).toBe("detailed")
+  })
+
+  test("rejects invalid secretary bar density", () => {
+    expect(() =>
+      ConfigParse.effectSchema(
+        Config.Info,
+        {
+          compaction: {
+            secretary_bar: "expanded",
+          },
+        },
+        "test",
+      ),
+    ).toThrow()
+  })
+
   test("rejects non-positive secretary thresholds", () => {
     ;(["diff_token_threshold", "diff_turn_threshold", "context_token_threshold", "compact_wait_timeout"] as const).flatMap((field) =>
       [0, -1].map((value) =>

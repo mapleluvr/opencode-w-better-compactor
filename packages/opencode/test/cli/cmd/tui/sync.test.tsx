@@ -403,6 +403,7 @@ describe("tui sync", () => {
               status: "idle",
               retry_count: 0,
               payload_degraded: false,
+              summary: "current summary text",
               last_success_at: 100,
               summary_up_to: "msg-123",
               previous_diff_start: "msg-50",
@@ -421,6 +422,7 @@ describe("tui sync", () => {
       expect(sync.data.secretary_status["session-1"].payload_degraded).toBe(false)
       expect(sync.data.secretary_status["session-1"].retry_count).toBe(0)
       expect(sync.data.secretary_status["session-1"].last_success_at).toBe(100)
+      expect(sync.data.secretary_status["session-1"].summary).toBe("current summary text")
       expect(sync.data.secretary_status["session-1"].summary_up_to).toBe("msg-123")
       expect(sync.data.secretary_status["session-1"].previous_diff_start).toBe("msg-50")
       expect(sync.data.secretary_status["session-1"].previous_diff_end).toBe("msg-100")

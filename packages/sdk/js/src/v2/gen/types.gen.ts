@@ -4,7 +4,7 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
-export type Event = EventServerInstanceDisposed | EventFileEdited | EventFileWatcherUpdated | EventLspClientDiagnostics | EventLspUpdated | EventMessagePartDelta | EventPermissionAsked | EventPermissionReplied | EventSessionDiff | EventSessionError | EventInstallationUpdated | EventInstallationUpdateAvailable | EventQuestionAsked | EventQuestionReplied | EventQuestionRejected | EventTodoUpdated | EventSessionStatus | EventSessionIdle | EventSessionCompacted | EventTuiPromptAppend | EventTuiCommandExecute | EventTuiToastShow1 | EventTuiSessionSelect | EventMcpToolsChanged | EventMcpBrowserOpenFailed | EventCommandExecuted | EventProjectUpdated | EventVcsBranchUpdated | EventWorkspaceReady | EventWorkspaceFailed | EventWorkspaceStatus | EventWorktreeReady | EventWorktreeFailed | EventPtyCreated | EventPtyUpdated | EventPtyExited | EventPtyDeleted | EventMessageUpdated | EventMessageRemoved | EventMessagePartUpdated | EventMessagePartRemoved | EventSessionCreated | EventSessionUpdated | EventSessionDeleted | EventSessionNextAgentSwitched | EventSessionNextModelSwitched | EventSessionNextPrompted | EventSessionNextSynthetic | EventSessionNextShellStarted | EventSessionNextShellEnded | EventSessionNextStepStarted | EventSessionNextStepEnded | EventSessionNextStepFailed | EventSessionNextTextStarted | EventSessionNextTextDelta | EventSessionNextTextEnded | EventSessionNextReasoningStarted | EventSessionNextReasoningDelta | EventSessionNextReasoningEnded | EventSessionNextToolInputStarted | EventSessionNextToolInputDelta | EventSessionNextToolInputEnded | EventSessionNextToolCalled | EventSessionNextToolProgress | EventSessionNextToolSuccess | EventSessionNextToolFailed | EventSessionNextRetried | EventSessionNextCompactionStarted | EventSessionNextCompactionDelta | EventSessionNextCompactionEnded | EventSessionNextSecretaryStarted | EventSessionNextSecretaryRetrying | EventSessionNextSecretarySucceeded | EventSessionNextSecretaryFailed | EventSessionNextSecretaryCompactWaiting | EventSessionNextSecretaryCompactDegraded | EventSessionNextSecretaryCompactStarted | EventSessionNextSecretaryCompactSwitched | EventServerConnected | EventGlobalDisposed;
+export type Event = EventServerInstanceDisposed | EventFileEdited | EventFileWatcherUpdated | EventLspClientDiagnostics | EventLspUpdated | EventMessagePartDelta | EventPermissionAsked | EventPermissionReplied | EventSessionDiff | EventSessionError | EventInstallationUpdated | EventInstallationUpdateAvailable | EventQuestionAsked | EventQuestionReplied | EventQuestionRejected | EventTodoUpdated | EventSessionStatus | EventSessionIdle | EventSessionCompacted | EventTuiPromptAppend | EventTuiCommandExecute | EventTuiToastShow1 | EventTuiSessionSelect | EventMcpToolsChanged | EventMcpBrowserOpenFailed | EventCommandExecuted | EventProjectUpdated | EventVcsBranchUpdated | EventWorkspaceReady | EventWorkspaceFailed | EventWorkspaceStatus | EventWorktreeReady | EventWorktreeFailed | EventPtyCreated | EventPtyUpdated | EventPtyExited | EventPtyDeleted | EventMessageUpdated | EventMessageRemoved | EventMessagePartUpdated | EventMessagePartRemoved | EventSessionCreated | EventSessionUpdated | EventSessionDeleted | EventSessionNextAgentSwitched | EventSessionNextModelSwitched | EventSessionNextPrompted | EventSessionNextSynthetic | EventSessionNextShellStarted | EventSessionNextShellEnded | EventSessionNextStepStarted | EventSessionNextStepEnded | EventSessionNextStepFailed | EventSessionNextTextStarted | EventSessionNextTextDelta | EventSessionNextTextEnded | EventSessionNextReasoningStarted | EventSessionNextReasoningDelta | EventSessionNextReasoningEnded | EventSessionNextToolInputStarted | EventSessionNextToolInputDelta | EventSessionNextToolInputEnded | EventSessionNextToolCalled | EventSessionNextToolProgress | EventSessionNextToolSuccess | EventSessionNextToolFailed | EventSessionNextRetried | EventSessionNextCompactionStarted | EventSessionNextCompactionDelta | EventSessionNextCompactionEnded | EventSessionNextCompactionFailed | EventSessionNextSecretaryStarted | EventSessionNextSecretaryRetrying | EventSessionNextSecretarySucceeded | EventSessionNextSecretaryFailed | EventSessionNextSecretaryCompactWaiting | EventSessionNextSecretaryCompactDegraded | EventSessionNextSecretaryCompactStarted | EventSessionNextSecretaryCompactSwitched | EventServerConnected | EventGlobalDisposed;
 
 export type OAuth = {
     type: 'oauth';
@@ -658,7 +658,7 @@ export type GlobalEvent = {
     directory: string;
     project?: string;
     workspace?: string;
-    payload: EventServerInstanceDisposed | EventFileEdited | EventFileWatcherUpdated | EventLspClientDiagnostics | EventLspUpdated | EventMessagePartDelta | EventPermissionAsked | EventPermissionReplied | EventSessionDiff | EventSessionError | EventInstallationUpdated | EventInstallationUpdateAvailable | EventQuestionAsked | EventQuestionReplied | EventQuestionRejected | EventTodoUpdated | EventSessionStatus | EventSessionIdle | EventSessionCompacted | EventTuiPromptAppend | EventTuiCommandExecute | EventTuiToastShow | EventTuiSessionSelect | EventMcpToolsChanged | EventMcpBrowserOpenFailed | EventCommandExecuted | EventProjectUpdated | EventVcsBranchUpdated | EventWorkspaceReady | EventWorkspaceFailed | EventWorkspaceStatus | EventWorktreeReady | EventWorktreeFailed | EventPtyCreated | EventPtyUpdated | EventPtyExited | EventPtyDeleted | EventMessageUpdated | EventMessageRemoved | EventMessagePartUpdated | EventMessagePartRemoved | EventSessionCreated | EventSessionUpdated | EventSessionDeleted | EventSessionNextAgentSwitched | EventSessionNextModelSwitched | EventSessionNextPrompted | EventSessionNextSynthetic | EventSessionNextShellStarted | EventSessionNextShellEnded | EventSessionNextStepStarted | EventSessionNextStepEnded | EventSessionNextStepFailed | EventSessionNextTextStarted | EventSessionNextTextDelta | EventSessionNextTextEnded | EventSessionNextReasoningStarted | EventSessionNextReasoningDelta | EventSessionNextReasoningEnded | EventSessionNextToolInputStarted | EventSessionNextToolInputDelta | EventSessionNextToolInputEnded | EventSessionNextToolCalled | EventSessionNextToolProgress | EventSessionNextToolSuccess | EventSessionNextToolFailed | EventSessionNextRetried | EventSessionNextCompactionStarted | EventSessionNextCompactionDelta | EventSessionNextCompactionEnded | EventSessionNextSecretaryStarted | EventSessionNextSecretaryRetrying | EventSessionNextSecretarySucceeded | EventSessionNextSecretaryFailed | EventSessionNextSecretaryCompactWaiting | EventSessionNextSecretaryCompactDegraded | EventSessionNextSecretaryCompactStarted | EventSessionNextSecretaryCompactSwitched | EventServerConnected | EventGlobalDisposed | SyncEventMessageUpdated | SyncEventMessageRemoved | SyncEventMessagePartUpdated | SyncEventMessagePartRemoved | SyncEventSessionCreated | SyncEventSessionUpdated | SyncEventSessionDeleted | SyncEventSessionNextAgentSwitched | SyncEventSessionNextModelSwitched | SyncEventSessionNextPrompted | SyncEventSessionNextSynthetic | SyncEventSessionNextShellStarted | SyncEventSessionNextShellEnded | SyncEventSessionNextStepStarted | SyncEventSessionNextStepEnded | SyncEventSessionNextStepFailed | SyncEventSessionNextTextStarted | SyncEventSessionNextTextDelta | SyncEventSessionNextTextEnded | SyncEventSessionNextReasoningStarted | SyncEventSessionNextReasoningDelta | SyncEventSessionNextReasoningEnded | SyncEventSessionNextToolInputStarted | SyncEventSessionNextToolInputDelta | SyncEventSessionNextToolInputEnded | SyncEventSessionNextToolCalled | SyncEventSessionNextToolProgress | SyncEventSessionNextToolSuccess | SyncEventSessionNextToolFailed | SyncEventSessionNextRetried | SyncEventSessionNextCompactionStarted | SyncEventSessionNextCompactionDelta | SyncEventSessionNextCompactionEnded | SyncEventSessionNextSecretaryStarted | SyncEventSessionNextSecretaryRetrying | SyncEventSessionNextSecretarySucceeded | SyncEventSessionNextSecretaryFailed | SyncEventSessionNextSecretaryCompactWaiting | SyncEventSessionNextSecretaryCompactDegraded | SyncEventSessionNextSecretaryCompactStarted | SyncEventSessionNextSecretaryCompactSwitched;
+    payload: EventServerInstanceDisposed | EventFileEdited | EventFileWatcherUpdated | EventLspClientDiagnostics | EventLspUpdated | EventMessagePartDelta | EventPermissionAsked | EventPermissionReplied | EventSessionDiff | EventSessionError | EventInstallationUpdated | EventInstallationUpdateAvailable | EventQuestionAsked | EventQuestionReplied | EventQuestionRejected | EventTodoUpdated | EventSessionStatus | EventSessionIdle | EventSessionCompacted | EventTuiPromptAppend | EventTuiCommandExecute | EventTuiToastShow | EventTuiSessionSelect | EventMcpToolsChanged | EventMcpBrowserOpenFailed | EventCommandExecuted | EventProjectUpdated | EventVcsBranchUpdated | EventWorkspaceReady | EventWorkspaceFailed | EventWorkspaceStatus | EventWorktreeReady | EventWorktreeFailed | EventPtyCreated | EventPtyUpdated | EventPtyExited | EventPtyDeleted | EventMessageUpdated | EventMessageRemoved | EventMessagePartUpdated | EventMessagePartRemoved | EventSessionCreated | EventSessionUpdated | EventSessionDeleted | EventSessionNextAgentSwitched | EventSessionNextModelSwitched | EventSessionNextPrompted | EventSessionNextSynthetic | EventSessionNextShellStarted | EventSessionNextShellEnded | EventSessionNextStepStarted | EventSessionNextStepEnded | EventSessionNextStepFailed | EventSessionNextTextStarted | EventSessionNextTextDelta | EventSessionNextTextEnded | EventSessionNextReasoningStarted | EventSessionNextReasoningDelta | EventSessionNextReasoningEnded | EventSessionNextToolInputStarted | EventSessionNextToolInputDelta | EventSessionNextToolInputEnded | EventSessionNextToolCalled | EventSessionNextToolProgress | EventSessionNextToolSuccess | EventSessionNextToolFailed | EventSessionNextRetried | EventSessionNextCompactionStarted | EventSessionNextCompactionDelta | EventSessionNextCompactionEnded | EventSessionNextCompactionFailed | EventSessionNextSecretaryStarted | EventSessionNextSecretaryRetrying | EventSessionNextSecretarySucceeded | EventSessionNextSecretaryFailed | EventSessionNextSecretaryCompactWaiting | EventSessionNextSecretaryCompactDegraded | EventSessionNextSecretaryCompactStarted | EventSessionNextSecretaryCompactSwitched | EventServerConnected | EventGlobalDisposed | SyncEventMessageUpdated | SyncEventMessageRemoved | SyncEventMessagePartUpdated | SyncEventMessagePartRemoved | SyncEventSessionCreated | SyncEventSessionUpdated | SyncEventSessionDeleted | SyncEventSessionNextAgentSwitched | SyncEventSessionNextModelSwitched | SyncEventSessionNextPrompted | SyncEventSessionNextSynthetic | SyncEventSessionNextShellStarted | SyncEventSessionNextShellEnded | SyncEventSessionNextStepStarted | SyncEventSessionNextStepEnded | SyncEventSessionNextStepFailed | SyncEventSessionNextTextStarted | SyncEventSessionNextTextDelta | SyncEventSessionNextTextEnded | SyncEventSessionNextReasoningStarted | SyncEventSessionNextReasoningDelta | SyncEventSessionNextReasoningEnded | SyncEventSessionNextToolInputStarted | SyncEventSessionNextToolInputDelta | SyncEventSessionNextToolInputEnded | SyncEventSessionNextToolCalled | SyncEventSessionNextToolProgress | SyncEventSessionNextToolSuccess | SyncEventSessionNextToolFailed | SyncEventSessionNextRetried | SyncEventSessionNextCompactionStarted | SyncEventSessionNextCompactionDelta | SyncEventSessionNextCompactionEnded | SyncEventSessionNextCompactionFailed | SyncEventSessionNextSecretaryStarted | SyncEventSessionNextSecretaryRetrying | SyncEventSessionNextSecretarySucceeded | SyncEventSessionNextSecretaryFailed | SyncEventSessionNextSecretaryCompactWaiting | SyncEventSessionNextSecretaryCompactDegraded | SyncEventSessionNextSecretaryCompactStarted | SyncEventSessionNextSecretaryCompactSwitched;
 };
 
 /**
@@ -971,6 +971,7 @@ export type Config = {
     compaction?: {
         auto?: boolean;
         strategy?: 'classic' | 'secretary';
+        secretary_bar?: 'compact' | 'detailed';
         secretary?: {
             model?: string;
             diff_token_threshold?: number;
@@ -1413,6 +1414,7 @@ export type SubtaskPartInput = {
 export type SecretaryStatusResponse = {
     sessionID: string;
     status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+    summary?: string;
     retry_count: number;
     payload_degraded: boolean;
     last_error?: string;
@@ -1423,7 +1425,7 @@ export type SecretaryStatusResponse = {
     running_snapshot_start?: string;
     running_snapshot_end?: string;
     compact_waiting: boolean;
-} | null;
+};
 
 export type V2SessionsResponse = {
     items: Array<SessionInfo>;
@@ -2004,6 +2006,21 @@ export type SyncEventSessionNextCompactionEnded = {
         sessionID: string;
         text: string;
         include?: string;
+        reason: 'manual' | 'auto';
+    };
+};
+
+export type SyncEventSessionNextCompactionFailed = {
+    type: 'sync';
+    name: 'session.next.compaction.failed.1';
+    id: string;
+    seq: number;
+    aggregateID: 'sessionID';
+    data: {
+        timestamp: number;
+        sessionID: string;
+        reason: 'manual' | 'auto';
+        error: string;
     };
 };
 
@@ -2017,6 +2034,7 @@ export type SyncEventSessionNextSecretaryStarted = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2042,6 +2060,7 @@ export type SyncEventSessionNextSecretaryRetrying = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2067,6 +2086,7 @@ export type SyncEventSessionNextSecretarySucceeded = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2092,6 +2112,7 @@ export type SyncEventSessionNextSecretaryFailed = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2117,6 +2138,7 @@ export type SyncEventSessionNextSecretaryCompactWaiting = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2142,6 +2164,7 @@ export type SyncEventSessionNextSecretaryCompactDegraded = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2167,6 +2190,7 @@ export type SyncEventSessionNextSecretaryCompactStarted = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2192,6 +2216,7 @@ export type SyncEventSessionNextSecretaryCompactSwitched = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2912,6 +2937,18 @@ export type EventSessionNextCompactionEnded = {
         sessionID: string;
         text: string;
         include?: string;
+        reason: 'manual' | 'auto';
+    };
+};
+
+export type EventSessionNextCompactionFailed = {
+    id: string;
+    type: 'session.next.compaction.failed';
+    properties: {
+        timestamp: number;
+        sessionID: string;
+        reason: 'manual' | 'auto';
+        error: string;
     };
 };
 
@@ -2922,6 +2959,7 @@ export type EventSessionNextSecretaryStarted = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2944,6 +2982,7 @@ export type EventSessionNextSecretaryRetrying = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2966,6 +3005,7 @@ export type EventSessionNextSecretarySucceeded = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -2988,6 +3028,7 @@ export type EventSessionNextSecretaryFailed = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -3010,6 +3051,7 @@ export type EventSessionNextSecretaryCompactWaiting = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -3032,6 +3074,7 @@ export type EventSessionNextSecretaryCompactDegraded = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -3054,6 +3097,7 @@ export type EventSessionNextSecretaryCompactStarted = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -3076,6 +3120,7 @@ export type EventSessionNextSecretaryCompactSwitched = {
         timestamp: number;
         sessionID: string;
         status: 'idle' | 'running' | 'retrying' | 'error' | 'compacting';
+        summary?: string;
         retry_count?: number;
         last_error?: string;
         payload_degraded?: boolean;
@@ -5961,7 +6006,7 @@ export type SessionSecretaryStatusResponses = {
     /**
      * Secretary status
      */
-    200: SecretaryStatusResponse;
+    200: SecretaryStatusResponse | null;
 };
 
 export type SessionSecretaryStatusResponse = SessionSecretaryStatusResponses[keyof SessionSecretaryStatusResponses];

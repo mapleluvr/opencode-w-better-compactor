@@ -39,6 +39,7 @@ type SecretaryStatusInfo = {
   sessionID: string
   timestamp: number
   status: SecretaryState.Status
+  summary?: string
   retry_count?: number
   last_error?: string
   payload_degraded?: boolean

@@ -200,6 +200,7 @@ export default [
   SyncEvent.project(SessionEvent.Compaction.Ended.Sync, (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.compaction.ended", data })
   }),
+  SyncEvent.project(SessionEvent.Compaction.Failed.Sync, () => {}),
   SyncEvent.project(SessionEvent.Secretary.Started.Sync, (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.secretary.started", data })
   }),

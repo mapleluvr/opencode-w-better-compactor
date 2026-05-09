@@ -367,6 +367,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return {
         sessionID: info.sessionID,
         status: info.status,
+        summary: info.summary,
         retry_count: info.retryCount,
         payload_degraded: info.payloadDegraded,
         last_error: info.lastError,

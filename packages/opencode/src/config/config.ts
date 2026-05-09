@@ -230,6 +230,9 @@ export const Info = Schema.Struct({
         description: "Enable automatic compaction when context is full (default: true)",
       }),
       strategy: Schema.optional(Schema.Literals(["classic", "secretary"])),
+      secretary_bar: Schema.optional(Schema.Literals(["compact", "detailed"])).annotate({
+        description: "Secretary sidebar density: compact or detailed (default: compact)",
+      }),
       secretary: Schema.optional(
         Schema.Struct({
           model: Schema.optional(ConfigModelID),

@@ -576,6 +576,7 @@ describe("session HttpApi", () => {
                     session_id: session.id,
                     version: 1,
                     status: "compacting" as const,
+                    summary: "stored secretary summary",
                     retry_count: 2,
                     last_error: "test error",
                     last_success_at: 1234567890,
@@ -605,6 +606,7 @@ describe("session HttpApi", () => {
         expect(body).toMatchObject({
           sessionID: session.id,
           status: "compacting",
+          summary: "stored secretary summary",
           retry_count: 2,
           last_error: "test error",
           last_success_at: 1234567890,
@@ -619,7 +621,6 @@ describe("session HttpApi", () => {
         expect(body.version).toBeUndefined()
         expect(body.classic).toBeUndefined()
         expect(body.new_diff_start).toBeUndefined()
-        expect(body.summary).toBeUndefined()
 
         yield* Effect.promise(() =>
           WithInstance.provide({

@@ -11,6 +11,7 @@ import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { Snapshot } from "@/snapshot"
 import { Schema, SchemaGetter, Struct } from "effect"
+import { NonNegativeInt } from "@/util/schema"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
@@ -79,10 +80,11 @@ export const SecretaryStatusResponse = Schema.NullOr(
   Schema.Struct({
     sessionID: SessionID,
     status: SecretaryStatusSchema,
-    retry_count: Schema.Number,
+    summary: Schema.optional(Schema.String),
+    retry_count: NonNegativeInt,
     payload_degraded: Schema.Boolean,
     last_error: Schema.optional(Schema.String),
-    last_success_at: Schema.optional(Schema.Number),
+    last_success_at: Schema.optional(NonNegativeInt),
     summary_up_to: Schema.optional(Schema.String),
     previous_diff_start: Schema.optional(Schema.String),
     previous_diff_end: Schema.optional(Schema.String),

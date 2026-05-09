@@ -199,6 +199,7 @@ test("compaction events reduce to compaction message", () => {
     data: {
       sessionID,
       timestamp: DateTime.makeUnsafe(4),
+      reason: "auto",
       text: "final summary",
       include: "recent context",
     },
@@ -269,6 +270,24 @@ test("secretary status events do not reduce to classic compaction messages", () 
   ] satisfies SessionEvent.Event[]) {
     SessionMessageUpdater.update(SessionMessageUpdater.memory(state), event)
   }
+
+  expect(state.messages).toEqual([])
+})
+
+test("compaction failed events do not add session messages", () => {
+  const state: SessionMessageUpdater.MemoryState = { messages: [] }
+  const sessionID = SessionID.make("session")
+
+  SessionMessageUpdater.update(SessionMessageUpdater.memory(state), {
+    id: EventV2.ID.create(),
+    type: "session.next.compaction.failed",
+    data: {
+      sessionID,
+      timestamp: DateTime.makeUnsafe(5),
+      reason: "auto",
+      error: "context still too large",
+    },
+  } satisfies SessionEvent.Event)
 
   expect(state.messages).toEqual([])
 })

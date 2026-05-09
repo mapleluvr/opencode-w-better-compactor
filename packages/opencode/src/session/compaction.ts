@@ -578,6 +578,7 @@ export const layer: Layer.Layer<
         EventV2.run(SessionEvent.Compaction.Ended.Sync, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(Date.now()),
+          reason: input.auto ? "auto" : "manual",
           text: summary ?? "",
           include: selected.tail_start_id,
         })

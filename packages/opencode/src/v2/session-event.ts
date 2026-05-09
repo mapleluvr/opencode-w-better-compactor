@@ -353,9 +353,21 @@ export namespace Compaction {
       ...Base,
       text: Schema.String,
       include: Schema.String.pipe(Schema.optional),
+      reason: Schema.Literals(["manual", "auto"]),
     },
   })
   export type Ended = Schema.Schema.Type<typeof Ended>
+
+  export const Failed = EventV2.define({
+    type: "session.next.compaction.failed",
+    aggregate: "sessionID",
+    schema: {
+      ...Base,
+      reason: Schema.Literals(["manual", "auto"]),
+      error: Schema.String,
+    },
+  })
+  export type Failed = Schema.Schema.Type<typeof Failed>
 }
 
 export const SecretaryStatus = Schema.Literals(["idle", "running", "retrying", "error", "compacting"])
@@ -364,6 +376,7 @@ export type SecretaryStatus = Schema.Schema.Type<typeof SecretaryStatus>
 const SecretaryBase = {
   ...Base,
   status: SecretaryStatus,
+  summary: Schema.String.pipe(Schema.optional),
   retry_count: NonNegativeInt.pipe(Schema.optional),
   last_error: Schema.String.pipe(Schema.optional),
   payload_degraded: Schema.Boolean.pipe(Schema.optional),
@@ -469,6 +482,7 @@ export const All = Schema.Union(
     Compaction.Started,
     Compaction.Delta,
     Compaction.Ended,
+    Compaction.Failed,
     Secretary.Started,
     Secretary.Retrying,
     Secretary.Succeeded,
