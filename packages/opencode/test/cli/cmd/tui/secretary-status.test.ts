@@ -76,6 +76,16 @@ describe("secretary sidebar rows", () => {
     ).toEqual(["Strategy: secretary", "Status: idle"])
   })
 
+  test("shows disabled automatic compaction in sidebar rows", () => {
+    expect(
+      secretarySidebarRows({
+        strategy: "classic",
+        mode: "compact",
+        auto: false,
+      }).map((row) => row.text),
+    ).toContain("Auto: disabled")
+  })
+
   test("adds summary preview and boundaries in detailed mode", () => {
     expect(
       secretarySidebarRows({
@@ -119,6 +129,16 @@ describe("secretary sidebar rows", () => {
         },
       }).map((row) => row.text),
     ).toContain("Retry count: 0")
+  })
+
+  test("marks the detailed summary row as the summary action", () => {
+    expect(
+      secretarySidebarRows({
+        strategy: "secretary",
+        mode: "detailed",
+        status: { status: "idle", summary: "summary text" },
+      }).find((row) => row.text.startsWith("Summary:"))?.action,
+    ).toBe("summary")
   })
 })
 
@@ -248,6 +268,19 @@ describe("secretary lifecycle toasts", () => {
 })
 
 describe("secretary summary snapshot", () => {
+  test("shows a toast when no summary is available", async () => {
+    const messages: string[] = []
+    await openSecretarySummarySnapshot({
+      summary: undefined,
+      editor: "test-editor",
+      renderer: {} as never,
+      toast: { show: (input) => messages.push(input.message) },
+      open: async () => "ignored",
+    })
+
+    expect(messages).toEqual(["No secretary summary available yet"])
+  })
+
   test("shows a toast when no editor is configured", async () => {
     const messages: string[] = []
     await openSecretarySummarySnapshot({

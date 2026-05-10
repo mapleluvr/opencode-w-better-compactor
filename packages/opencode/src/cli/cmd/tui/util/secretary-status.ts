@@ -54,7 +54,7 @@ type CompactionEvent = EventSessionNextCompactionStarted | EventSessionNextCompa
 export type SecretarySidebarRow = {
   text: string
   tone?: "default" | "muted" | "warning" | "error" | "success"
-  action?: () => void
+  action?: "summary"
 }
 
 export function formatSecretaryStatus(status: SecretaryStatus) {
@@ -84,15 +84,21 @@ export function secretarySummaryPreview(summary: string | undefined, maxLength: 
 export function secretarySidebarRows(input: {
   strategy: "classic" | "secretary" | string
   mode: "compact" | "detailed"
+  auto?: boolean
   status?: SecretaryStatus
 }): SecretarySidebarRow[] {
+  const baseRows = [
+    { text: `Strategy: ${input.strategy}` },
+    { text: `Status: ${input.status?.status ?? "unknown"}` },
+    input.strategy === "classic" && input.auto === false ? { text: "Auto: disabled" } : undefined,
+  ].filter((row): row is SecretarySidebarRow => Boolean(row))
+
   if (input.mode === "compact") {
-    return [{ text: `Strategy: ${input.strategy}` }, { text: `Status: ${input.status?.status ?? "unknown"}` }]
+    return baseRows
   }
 
   const rows: (SecretarySidebarRow | undefined)[] = [
-    { text: `Strategy: ${input.strategy}` },
-    { text: `Status: ${input.status?.status ?? "unknown"}` },
+    ...baseRows,
     input.status?.payload_degraded ? { text: "Payload degraded", tone: "warning" as const } : undefined,
     input.status?.retry_count !== undefined ? { text: `Retry count: ${input.status.retry_count}` } : undefined,
     input.status?.summary_up_to ? { text: `Summary range: ${input.status.summary_up_to}` } : undefined,
@@ -103,7 +109,7 @@ export function secretarySidebarRows(input: {
       ? { text: `Running snapshot: ${input.status.running_snapshot_start} .. ${input.status.running_snapshot_end}` }
       : undefined,
     input.status?.new_session_id ? { text: `New session: ${input.status.new_session_id}` } : undefined,
-    { text: `Summary: ${secretarySummaryPreview(input.status?.summary, 80)}` },
+    { text: `Summary: ${secretarySummaryPreview(input.status?.summary, 80)}`, action: "summary" },
   ]
   return rows.filter((row): row is SecretarySidebarRow => Boolean(row))
 }
@@ -159,12 +165,17 @@ export function markToastEvent(seen: Set<string>, event: { id: string }) {
 }
 
 export async function openSecretarySummarySnapshot(input: {
-  summary: string
+  summary?: string
   renderer: CliRenderer
   toast: { show: (payload: ToastPayload) => void }
   editor?: string
   open?: (input: { value: string; renderer: CliRenderer; editor?: string }) => Promise<string | undefined>
 }) {
+  if (!input.summary) {
+    input.toast.show({ message: "No secretary summary available yet", variant: "warning" })
+    return
+  }
+
   if (!input.editor) {
     input.toast.show({ message: "Set VISUAL or EDITOR to open the secretary summary", variant: "warning" })
     return
