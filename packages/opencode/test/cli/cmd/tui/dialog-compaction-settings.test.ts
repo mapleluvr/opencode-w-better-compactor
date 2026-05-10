@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
   compactionControlDescriptions,
-  compactionSettingsOptionValues,
   formatStatus,
   secretaryControlDescriptions,
   updateCompactionSettings,
@@ -35,20 +34,6 @@ describe("DialogCompactionSettings controls", () => {
       secretaryBar: "Detailed",
     })
     expect(compactionControlDescriptions({})).toMatchObject({ secretaryBar: "Compact" })
-  })
-
-  test("returns only settings menu values", () => {
-    expect(compactionSettingsOptionValues()).toEqual([
-      "auto",
-      "strategy",
-      "model",
-      "diff_token_threshold",
-      "diff_turn_threshold",
-      "context_token_threshold",
-      "compact_wait_timeout",
-      "secretary_bar",
-    ])
-    expect(compactionSettingsOptionValues()).not.toContain("status")
   })
 
   test("provides p q r defaults when secretary fields are omitted", () => {

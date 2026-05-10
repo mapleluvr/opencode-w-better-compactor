@@ -27,6 +27,7 @@ type SecretaryStatus = Pick<SecretaryStatusResponse, "status"> &
       | "summary"
       | "retry_count"
       | "last_error"
+      | "last_success_at"
       | "payload_degraded"
       | "compact_waiting"
       | "summary_up_to"
@@ -61,6 +62,8 @@ export function formatSecretaryStatus(status: SecretaryStatus) {
     `Status: ${status.status}`,
     status.retry_count === undefined ? undefined : `Retry count: ${status.retry_count}`,
     status.new_session_id ? `New session: ${status.new_session_id}` : undefined,
+    status.last_success_at ? `Last success: ${new Date(status.last_success_at).toLocaleString()}` : undefined,
+    status.last_error ? `Last error: ${status.last_error}` : undefined,
     status.payload_degraded === undefined ? undefined : `Payload degraded: ${status.payload_degraded}`,
     status.compact_waiting === undefined ? undefined : `Compact waiting: ${status.compact_waiting}`,
     status.summary_up_to ? `Summary up to: ${status.summary_up_to}` : undefined,

@@ -38,6 +38,22 @@ describe("secretary status formatting", () => {
     ])
   })
 
+  test("includes last_error and last_success_at when present", () => {
+    const result = formatSecretaryStatus({
+      status: "error",
+      last_error: "model unavailable",
+      last_success_at: 1700000000000,
+    })
+    expect(result).toContain("Last error: model unavailable")
+    expect(result.some((line) => line.startsWith("Last success:"))).toBe(true)
+  })
+
+  test("omits last_error and last_success_at when absent", () => {
+    const result = formatSecretaryStatus({ status: "idle" })
+    expect(result.some((line) => line.startsWith("Last error:"))).toBe(false)
+    expect(result.some((line) => line.startsWith("Last success:"))).toBe(false)
+  })
+
   test("uses a clear summary fallback label", () => {
     expect(secretarySummaryPreview(undefined, 20)).toBe("No summary yet")
     expect(secretarySummaryPreview("   ", 20)).toBe("No summary yet")

@@ -22,19 +22,6 @@ export function compactionControlDescriptions(config: {
   }
 }
 
-export function compactionSettingsOptionValues() {
-  return [
-    "auto",
-    "strategy",
-    "model",
-    "diff_token_threshold",
-    "diff_turn_threshold",
-    "context_token_threshold",
-    "compact_wait_timeout",
-    "secretary_bar",
-  ]
-}
-
 export function secretaryControlDescriptions(secretary?: {
   model?: string
   diff_token_threshold?: number
