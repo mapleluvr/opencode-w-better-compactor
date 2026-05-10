@@ -64,6 +64,7 @@ import { createTuiApi } from "@/cli/cmd/tui/plugin/api"
 import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import type { RouteMap } from "@/cli/cmd/tui/plugin/api"
 import { FormatError, FormatUnknownError } from "@/cli/error"
+import { compactionToast, markToastEvent, secretaryToast } from "@tui/util/secretary-status"
 
 import type { EventSource } from "./context/sdk"
 import { DialogVariant } from "./component/dialog-variant"
@@ -793,6 +794,30 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       duration: evt.properties.duration,
     })
   })
+
+  const seenCompactionToastEvents = new Set<string>()
+  const showSecretaryToast = (evt: Parameters<typeof secretaryToast>[0]) => {
+    if (!markToastEvent(seenCompactionToastEvents, evt)) return
+    const payload = secretaryToast(evt)
+    if (!payload) return
+    toast.show(payload)
+  }
+  const showCompactionToast = (evt: Parameters<typeof compactionToast>[0]) => {
+    if (!markToastEvent(seenCompactionToastEvents, evt)) return
+    toast.show(compactionToast(evt))
+  }
+
+  event.on("session.next.secretary.started", showSecretaryToast)
+  event.on("session.next.secretary.retrying", showSecretaryToast)
+  event.on("session.next.secretary.succeeded", showSecretaryToast)
+  event.on("session.next.secretary.failed", showSecretaryToast)
+  event.on("session.next.secretary.compact.waiting", showSecretaryToast)
+  event.on("session.next.secretary.compact.degraded", showSecretaryToast)
+  event.on("session.next.secretary.compact.started", showSecretaryToast)
+  event.on("session.next.secretary.compact.switched", showSecretaryToast)
+  event.on("session.next.compaction.started", showCompactionToast)
+  event.on("session.next.compaction.ended", showCompactionToast)
+  event.on("session.next.compaction.failed", showCompactionToast)
 
   event.on(TuiEvent.SessionSelect.type, (evt) => {
     route.navigate({

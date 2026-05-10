@@ -19,6 +19,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { isOverflow as overflow, usable } from "./overflow"
 import { makeRuntime } from "@/effect/run-service"
 import { fn } from "@/util/fn"
+import { errorMessage } from "@/util/error"
 import { EventV2 } from "@/v2/event"
 import { SessionEvent } from "@/v2/session-event"
 import { SecretaryCompaction } from "./secretary-compaction"
@@ -468,13 +469,20 @@ export const layer: Layer.Layer<
       })
 
       if (result === "compact") {
+        const error = replay
+          ? "Conversation history too large to compact - exceeds model context limit"
+          : "Session too large to compact - context exceeds model limit even after stripping media"
         processor.message.error = new MessageV2.ContextOverflowError({
-          message: replay
-            ? "Conversation history too large to compact - exceeds model context limit"
-            : "Session too large to compact - context exceeds model limit even after stripping media",
+          message: error,
         }).toObject()
         processor.message.finish = "error"
         yield* session.updateMessage(processor.message)
+        EventV2.run(SessionEvent.Compaction.Failed.Sync, {
+          sessionID: input.sessionID,
+          timestamp: DateTime.makeUnsafe(Date.now()),
+          reason: input.auto ? "auto" : "manual",
+          error,
+        })
         return "stop"
       }
 
@@ -567,7 +575,15 @@ export const layer: Layer.Layer<
         }
       }
 
-      if (processor.message.error) return "stop"
+      if (processor.message.error) {
+        EventV2.run(SessionEvent.Compaction.Failed.Sync, {
+          sessionID: input.sessionID,
+          timestamp: DateTime.makeUnsafe(Date.now()),
+          reason: input.auto ? "auto" : "manual",
+          error: errorMessage(processor.message.error),
+        })
+        return "stop"
+      }
       if (result === "continue") {
         const summary = summaryText(
           (yield* session.messages({ sessionID: input.sessionID })).find((item) => item.info.id === msg.id) ?? {

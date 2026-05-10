@@ -959,6 +959,13 @@ describe("session.compaction.process", () => {
         const session = await svc.create({})
         const msg = await user(session.id, "hello")
         const rt = runtime("compact", Plugin.defaultLayer, wide())
+        const failed = defer()
+        let failedEvent: { reason?: string; error?: string } | undefined
+        const unsub = Bus.subscribe(SessionEvent.Compaction.Failed.Sync, (evt) => {
+          if (evt.properties.sessionID !== session.id) return
+          failedEvent = evt.properties
+          failed.resolve()
+        })
         try {
           const msgs = await svc.messages({ sessionID: session.id })
           const result = await rt.runPromise(
@@ -971,6 +978,16 @@ describe("session.compaction.process", () => {
               }),
             ),
           )
+          await Promise.race([
+            failed.promise,
+            wait(500).then(() => {
+              throw new Error("timed out waiting for compaction failed event")
+            }),
+          ])
+          expect(failedEvent).toMatchObject({
+            reason: "manual",
+            error: "Session too large to compact - context exceeds model limit even after stripping media",
+          })
 
           const summary = (await svc.messages({ sessionID: session.id })).find(
             (msg) => msg.info.role === "assistant" && msg.info.summary,
@@ -983,6 +1000,7 @@ describe("session.compaction.process", () => {
             expect(JSON.stringify(summary.info.error)).toContain("Session too large to compact")
           }
         } finally {
+          unsub?.()
           await rt.dispose()
         }
       },
@@ -2017,11 +2035,19 @@ describe("session.compaction.secretary", () => {
           strategy: "secretary",
           secretary: { diff_token_threshold: 1, diff_turn_threshold: 1 },
         }))
+        let unsub: (() => void) | undefined
         try {
           const session = await svc.create({})
           const u = await user(session.id, "hello")
           const a = await assistant(session.id, u.id, tmp.path)
           const msgs = await svc.messages({ sessionID: session.id })
+          const succeeded = defer()
+          let succeededEvent: { summary?: string } | undefined
+          unsub = Bus.subscribe(SessionEvent.Secretary.Succeeded.Sync, (evt) => {
+            if (evt.properties.sessionID !== session.id) return
+            succeededEvent = evt.properties
+            succeeded.resolve()
+          })
 
           await rt.runPromise(
             SecretaryCompaction.Service.use((svc) =>
@@ -2053,7 +2079,15 @@ describe("session.compaction.secretary", () => {
           expect(state).toBeDefined()
           expect(state?.status).toBe("idle")
           expect(state?.summary).toContain("generated summary")
+          await Promise.race([
+            succeeded.promise,
+            wait(500).then(() => {
+              throw new Error("timed out waiting for secretary succeeded event")
+            }),
+          ])
+          expect(succeededEvent?.summary).toBe("generated summary")
         } finally {
+          unsub?.()
           await rt.dispose()
         }
       },
