@@ -48,13 +48,19 @@ function CompactStatus(props: { sessionID: string }) {
               fg={color(row.tone)}
               onMouseUp={
                 row.action === "summary"
-                  ? () =>
-                      void openSecretarySummarySnapshot({
+                  ? () => {
+                      openSecretarySummarySnapshot({
                         summary: status()?.summary,
                         renderer,
                         toast,
                         editor: process.env.VISUAL || process.env.EDITOR,
-                      })
+                      }).catch((err) =>
+                        toast.show({
+                          message: err instanceof Error ? err.message : "Failed to open secretary summary",
+                          variant: "error",
+                        }),
+                      )
+                    }
                   : undefined
               }
             >

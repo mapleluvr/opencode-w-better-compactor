@@ -87,31 +87,49 @@ export function secretarySidebarRows(input: {
   auto?: boolean
   status?: SecretaryStatus
 }): SecretarySidebarRow[] {
-  const baseRows = [
-    { text: `Strategy: ${input.strategy}` },
-    { text: `Status: ${input.status?.status ?? "unknown"}` },
-    input.strategy === "classic" && input.auto === false ? { text: "Auto: disabled" } : undefined,
-  ].filter((row): row is SecretarySidebarRow => Boolean(row))
-
-  if (input.mode === "compact") {
-    return baseRows
+  if (input.strategy === "classic") {
+    const rows: SecretarySidebarRow[] = [{ text: `Strategy: ${input.strategy}`, tone: "muted" as const }]
+    if (input.auto === false) rows.push({ text: "Auto: disabled", tone: "muted" as const })
+    return rows
   }
 
-  const rows: (SecretarySidebarRow | undefined)[] = [
-    ...baseRows,
+  const statusRows = [
+    { text: `Status: ${input.status?.status ?? "unavailable"}`, tone: "muted" as const },
+    input.status?.last_success_at
+      ? { text: `Last success: ${new Date(input.status.last_success_at).toLocaleString()}`, tone: "muted" as const }
+      : undefined,
+    input.status?.last_error ? { text: `Error: ${input.status.last_error}`, tone: "error" as const } : undefined,
     input.status?.payload_degraded ? { text: "Payload degraded", tone: "warning" as const } : undefined,
-    input.status?.retry_count !== undefined ? { text: `Retry count: ${input.status.retry_count}` } : undefined,
-    input.status?.summary_up_to ? { text: `Summary range: ${input.status.summary_up_to}` } : undefined,
-    input.status?.previous_diff_start && input.status.previous_diff_end
-      ? { text: `Previous diff: ${input.status.previous_diff_start} .. ${input.status.previous_diff_end}` }
-      : undefined,
-    input.status?.running_snapshot_start && input.status.running_snapshot_end
-      ? { text: `Running snapshot: ${input.status.running_snapshot_start} .. ${input.status.running_snapshot_end}` }
-      : undefined,
-    input.status?.new_session_id ? { text: `New session: ${input.status.new_session_id}` } : undefined,
-    { text: `Summary: ${secretarySummaryPreview(input.status?.summary, 80)}`, action: "summary" },
+  ].filter(Boolean) as SecretarySidebarRow[]
+
+  const compact: SecretarySidebarRow[] = [
+    { text: `Strategy: ${input.strategy}`, tone: "muted" as const },
+    ...statusRows,
   ]
-  return rows.filter((row): row is SecretarySidebarRow => Boolean(row))
+
+  if (input.mode === "compact") return compact
+
+  const previousStart = input.status?.previous_diff_start ?? "?"
+  const previousEnd = input.status?.previous_diff_end ?? "?"
+  const snapshotStart = input.status?.running_snapshot_start ?? "?"
+  const snapshotEnd = input.status?.running_snapshot_end ?? "?"
+
+  return [
+    ...compact,
+    input.status?.retry_count !== undefined
+      ? { text: `Retry count: ${input.status.retry_count}`, tone: "muted" as const }
+      : undefined,
+    input.status?.compact_waiting ? { text: "Compact waiting: true", tone: "muted" as const } : undefined,
+    input.status?.summary_up_to ? { text: `Summary range: ${input.status.summary_up_to}`, tone: "muted" as const } : undefined,
+    input.status?.previous_diff_start || input.status?.previous_diff_end
+      ? { text: `Previous diff: ${previousStart} .. ${previousEnd}`, tone: "muted" as const }
+      : undefined,
+    input.status?.running_snapshot_start || input.status?.running_snapshot_end
+      ? { text: `Running snapshot: ${snapshotStart} .. ${snapshotEnd}`, tone: "muted" as const }
+      : undefined,
+    input.status?.new_session_id ? { text: `New session: ${input.status.new_session_id}`, tone: "muted" as const } : undefined,
+    { text: `Summary: ${secretarySummaryPreview(input.status?.summary, 80)}`, tone: "muted" as const, action: "summary" as const },
+  ].filter(Boolean) as SecretarySidebarRow[]
 }
 
 function assertNever(value: never): never {
