@@ -63,6 +63,7 @@ import { DialogConfirm } from "@tui/ui/dialog-confirm"
 import { DialogTimeline } from "./dialog-timeline"
 import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
+import { DialogSecretaryStatus } from "../../component/dialog-secretary-status"
 import { DialogCompactionSettings } from "../../component/dialog-compaction-settings"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
@@ -92,6 +93,7 @@ import { DialogGoUpsell } from "../../component/dialog-go-upsell"
 import { SessionRetry } from "@/session/retry"
 import { getRevertDiffFiles } from "../../util/revert-diff"
 import { userMessageText } from "./user-message-text"
+import { formatSecretaryStatus } from "@tui/util/secretary-status"
 
 addDefaultParsers(parsers.parsers)
 
@@ -536,7 +538,35 @@ export function Session() {
         aliases: ["autocompact", "secretary"],
       },
       onSelect: (dialog) => {
-        dialog.replace(() => <DialogCompactionSettings sessionID={route.sessionID} />)
+        dialog.replace(() => <DialogCompactionSettings />)
+      },
+    },
+    {
+      title: "Secretary status",
+      value: "session.secretary_status",
+      category: "Session",
+      slash: {
+        name: "secretary-status",
+      },
+      onSelect: async (dialog) => {
+        const liveStatus = sync.data.secretary_status[route.sessionID]
+        const status = liveStatus
+          ? liveStatus
+          : await sdk.client.session
+              .secretaryStatus({ sessionID: route.sessionID })
+              .then((result) => result.data)
+              .catch(() => undefined)
+        if (status === undefined) {
+          toast.show({ message: "Failed to fetch secretary status", variant: "error" })
+          dialog.clear()
+          return
+        }
+        if (!status) {
+          toast.show({ message: "No secretary status available for this session", variant: "warning" })
+          dialog.clear()
+          return
+        }
+        dialog.replace(() => <DialogSecretaryStatus lines={formatSecretaryStatus(status)} />)
       },
     },
     {

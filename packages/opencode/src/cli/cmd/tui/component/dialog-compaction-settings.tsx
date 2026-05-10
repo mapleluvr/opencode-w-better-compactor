@@ -6,19 +6,33 @@ import { useSDK } from "@tui/context/sdk"
 import { useToast } from "@tui/ui/toast"
 import { createMemo } from "solid-js"
 
-interface DialogCompactionSettingsProps {
-  sessionID: string
-}
-
 const DEFAULT_DIFF_TOKEN_THRESHOLD = 100_000
 const DEFAULT_DIFF_TURN_THRESHOLD = 20
 const DEFAULT_CONTEXT_TOKEN_THRESHOLD = 120_000
 
-export function compactionControlDescriptions(config: { auto?: boolean; strategy?: "classic" | "secretary" }) {
+export function compactionControlDescriptions(config: {
+  auto?: boolean
+  strategy?: "classic" | "secretary"
+  secretary_bar?: "compact" | "detailed"
+}) {
   return {
     auto: config.auto === false ? "Disabled" : "Enabled",
     strategy: (config.strategy ?? "classic") === "secretary" ? "Secretary" : "Classic",
+    secretaryBar: (config.secretary_bar ?? "compact") === "detailed" ? "Detailed" : "Compact",
   }
+}
+
+export function compactionSettingsOptionValues() {
+  return [
+    "auto",
+    "strategy",
+    "model",
+    "diff_token_threshold",
+    "diff_turn_threshold",
+    "context_token_threshold",
+    "compact_wait_timeout",
+    "secretary_bar",
+  ]
 }
 
 export function secretaryControlDescriptions(secretary?: {
@@ -80,7 +94,7 @@ export function formatStatus(data: {
   return lines
 }
 
-export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
+export function DialogCompactionSettings() {
   const dialog = useDialog()
   const sync = useSync()
   const sdk = useSDK()
@@ -122,6 +136,18 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
   const toggleStrategy = async () => {
     if (strategy() === "secretary") return enableClassic()
     return enableSecretary()
+  }
+
+  const toggleSecretaryBar = async () => {
+    await updateCompactionSettings({
+      compaction: {
+        ...sync.data.config.compaction,
+        secretary_bar: config().secretary_bar === "detailed" ? "compact" : "detailed",
+      },
+      dialog,
+      toast,
+      update: (config) => sdk.client.config.update({ config }),
+    })
   }
 
   const setSecretaryModel = async (dialog: DialogContext) => {
@@ -224,36 +250,6 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
     })
   }
 
-  const viewSecretaryStatus = async () => {
-    const liveStatus = sync.data.secretary_status[props.sessionID]
-    if (liveStatus) {
-      const lines = formatStatus(liveStatus)
-      void DialogPrompt.show(dialog, "Secretary status", {
-        value: lines.join("\n"),
-        description: () => <text>Current secretary status for this session</text>,
-      }).then(() => dialog.clear())
-      return
-    }
-
-    try {
-      const result = await sdk.client.session.secretaryStatus({ sessionID: props.sessionID })
-      const fetched = result.data
-      if (!fetched) {
-        toast.show({ message: "No secretary status available for this session", variant: "warning" })
-        dialog.clear()
-        return
-      }
-      const lines = formatStatus(fetched)
-      void DialogPrompt.show(dialog, "Secretary status", {
-        value: lines.join("\n"),
-        description: () => <text>Current secretary status for this session</text>,
-      }).then(() => dialog.clear())
-    } catch {
-      toast.show({ message: "Failed to fetch secretary status", variant: "error" })
-      dialog.clear()
-    }
-  }
-
   const controls = createMemo(() => compactionControlDescriptions(config()))
 
   return (
@@ -303,9 +299,10 @@ export function DialogCompactionSettings(props: DialogCompactionSettingsProps) {
           onSelect: setCompactWaitTimeout,
         },
         {
-          title: "View secretary status",
-          value: "status",
-          onSelect: viewSecretaryStatus,
+          title: "Secretary bar",
+          value: "secretary_bar",
+          description: controls().secretaryBar,
+          onSelect: toggleSecretaryBar,
         },
       ]}
     />

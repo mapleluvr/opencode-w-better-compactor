@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   compactionControlDescriptions,
+  compactionSettingsOptionValues,
   formatStatus,
   secretaryControlDescriptions,
   updateCompactionSettings,
@@ -11,15 +12,43 @@ describe("DialogCompactionSettings controls", () => {
     expect(compactionControlDescriptions({ auto: true, strategy: "classic" })).toEqual({
       auto: "Enabled",
       strategy: "Classic",
+      secretaryBar: "Compact",
     })
     expect(compactionControlDescriptions({ auto: false, strategy: "secretary" })).toEqual({
       auto: "Disabled",
       strategy: "Secretary",
+      secretaryBar: "Compact",
     })
     expect(compactionControlDescriptions({})).toEqual({
       auto: "Enabled",
       strategy: "Classic",
+      secretaryBar: "Compact",
     })
+  })
+
+  test("shows secretary bar state in control descriptions", () => {
+    expect(
+      compactionControlDescriptions({ auto: true, strategy: "secretary", secretary_bar: "detailed" }),
+    ).toEqual({
+      auto: "Enabled",
+      strategy: "Secretary",
+      secretaryBar: "Detailed",
+    })
+    expect(compactionControlDescriptions({})).toMatchObject({ secretaryBar: "Compact" })
+  })
+
+  test("returns only settings menu values", () => {
+    expect(compactionSettingsOptionValues()).toEqual([
+      "auto",
+      "strategy",
+      "model",
+      "diff_token_threshold",
+      "diff_turn_threshold",
+      "context_token_threshold",
+      "compact_wait_timeout",
+      "secretary_bar",
+    ])
+    expect(compactionSettingsOptionValues()).not.toContain("status")
   })
 
   test("provides p q r defaults when secretary fields are omitted", () => {
