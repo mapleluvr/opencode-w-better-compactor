@@ -48,6 +48,30 @@ function formatModelMessagesAsText(msgs: Array<{ role: string; content: unknown 
     .join("\n\n")
 }
 
+function structuredCompactPayload(input: {
+  summary: string
+  previousMessages: ModelMessage[]
+  newMessages: ModelMessage[]
+  previousTrimmed: boolean
+}) {
+  return JSON.stringify(
+    {
+      type: "secretary_compaction_payload",
+      version: 1,
+      latest_summary: input.summary,
+      previous_diff: {
+        trimmed: input.previousTrimmed,
+        messages: input.previousTrimmed ? [] : input.previousMessages,
+      },
+      new_diff: {
+        messages: input.newMessages,
+      },
+    },
+    null,
+    2,
+  )
+}
+
 export interface Interface {
   readonly afterAssistantComplete: (input: {
     sessionID: SessionID
@@ -509,26 +533,29 @@ export const layer = Layer.effect(
       const previousModelMsgs = previousMessages.length
         ? yield* MessageV2.toModelMessagesEffect(previousMessages, input.model, { stripMedia: true })
         : []
-      const previousText = previousModelMsgs.length ? formatModelMessagesAsText(previousModelMsgs) : ""
 
       const newModelMsgs = newMessages.length
         ? yield* MessageV2.toModelMessagesEffect(newMessages, input.model, { stripMedia: true })
         : []
-      const newText = newModelMsgs.length ? formatModelMessagesAsText(newModelMsgs) : ""
 
-      let previousSection = `Previous Diff\n${previousText}`
-      const newSection = `New Diff\n${newText}`
-      const summarySection = `Latest Summary\n${summaryText}`
-
-      let fullPayload = `${summarySection}\n\n${previousSection}\n\n${newSection}`
+      let fullPayload = structuredCompactPayload({
+        summary: summaryText,
+        previousMessages: previousModelMsgs,
+        newMessages: newModelMsgs,
+        previousTrimmed: false,
+      })
 
       const targetContext = contextThreshold ?? usable({ cfg, model: input.model })
       const payloadEstimate = Token.estimate(fullPayload)
       let payloadDegraded = currentState.payloadDegraded
 
       if (payloadEstimate > targetContext) {
-        previousSection = `Previous Diff\n[trimmed]`
-        fullPayload = `${summarySection}\n\n${previousSection}\n\n${newSection}`
+        fullPayload = structuredCompactPayload({
+          summary: summaryText,
+          previousMessages: previousModelMsgs,
+          newMessages: newModelMsgs,
+          previousTrimmed: true,
+        })
         payloadDegraded = true
 
         EventV2.run(SessionEvent.Secretary.Compact.Degraded.Sync, {

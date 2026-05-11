@@ -2656,15 +2656,33 @@ describe("session.compaction.secretary compact", () => {
           wide(),
           cfg({
             strategy: "secretary",
-            secretary: { context_token_threshold: 1, diff_token_threshold: 1, diff_turn_threshold: 1 },
+            secretary: { context_token_threshold: 500, diff_token_threshold: 1, diff_turn_threshold: 1 },
           }),
         )
         try {
           const session = await svc.create({})
           const u = await user(session.id, "hello world")
           const a = await assistant(session.id, u.id, tmp.path)
+          await svc.updatePart({
+            id: PartID.ascending(),
+            messageID: a.id,
+            sessionID: session.id,
+            type: "text",
+            text: "assistant response",
+          })
+          for (let i = 0; i < 2; i++) {
+            const oldUser = await user(session.id, `legacy user ${i} ${"x".repeat(1000)}`)
+            await assistant(session.id, oldUser.id, tmp.path)
+          }
           const u2 = await user(session.id, "second user message")
           const a2 = await assistant(session.id, u2.id, tmp.path)
+          await svc.updatePart({
+            id: PartID.ascending(),
+            messageID: a2.id,
+            sessionID: session.id,
+            type: "text",
+            text: "another assistant response",
+          })
           const msgs = await svc.messages({ sessionID: session.id })
 
           await rt.runPromise(
@@ -2682,7 +2700,7 @@ describe("session.compaction.secretary compact", () => {
                   ...st,
                   status: "idle",
                   summary: summaryText,
-                  previousDiffStart: msgs[0]?.info.id,
+                  previousDiffStart: u.id,
                   previousDiffEnd: a.id,
                   newDiffStart: u2.id,
                 }),
@@ -2710,10 +2728,25 @@ describe("session.compaction.secretary compact", () => {
           const textPart = newMsgs[0].parts.find((p): p is MessageV2.TextPart => p.type === "text")
           expect(textPart).toBeDefined()
           if (textPart) {
-            expect(textPart.text).toContain("Latest Summary")
-            expect(textPart.text).toContain(summaryText)
-            expect(textPart.text).toContain("Previous Diff")
-            expect(textPart.text).toContain("New Diff")
+            const payload = JSON.parse(textPart.text)
+            expect(payload).toMatchObject({
+              type: "secretary_compaction_payload",
+              version: 1,
+              latest_summary: summaryText,
+              previous_diff: { trimmed: false },
+            })
+            expect(payload.previous_diff.messages).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({ role: "user" }),
+                expect.objectContaining({ role: "assistant" }),
+              ]),
+            )
+            expect(payload.new_diff.messages).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({ role: "user" }),
+                expect.objectContaining({ role: "assistant" }),
+              ]),
+            )
             expect(textPart.synthetic).toBe(true)
             expect(textPart.metadata).toEqual({ compaction_continue: true })
           }
@@ -2786,10 +2819,11 @@ describe("session.compaction.secretary compact", () => {
           const textPart = newMsgs[0].parts.find((p): p is MessageV2.TextPart => p.type === "text")
           expect(textPart).toBeDefined()
           if (textPart) {
-            expect(textPart.text).toContain("Latest Summary")
-            expect(textPart.text).toContain("New Diff")
-            expect(textPart.text).toContain("[trimmed]")
-            expect(textPart.text).toContain("Previous Diff")
+            const payload = JSON.parse(textPart.text)
+            expect(payload.latest_summary).toBe("short summary")
+            expect(payload.previous_diff.trimmed).toBe(true)
+            expect(payload.previous_diff.messages).toEqual([])
+            expect(payload.new_diff.messages.length).toBeGreaterThan(0)
           }
 
           const state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
@@ -2948,7 +2982,7 @@ describe("session.compaction.secretary compact", () => {
     })
   })
 
-  test("compact payload excludes JSON role keys in Previous and New Diff", async () => {
+  test("compact payload stores Previous and New Diff as structured message arrays", async () => {
     await using tmp = await tmpdir()
     await WithInstance.provide({
       directory: tmp.path,
@@ -2959,7 +2993,7 @@ describe("session.compaction.secretary compact", () => {
           wide(),
           cfg({
             strategy: "secretary",
-            secretary: { context_token_threshold: 1 },
+            secretary: { context_token_threshold: 500 },
           }),
         )
         try {
@@ -2973,6 +3007,10 @@ describe("session.compaction.secretary compact", () => {
             type: "text",
             text: "assistant response",
           })
+          for (let i = 0; i < 2; i++) {
+            const oldUser = await user(session.id, `legacy user ${i} ${"x".repeat(1000)}`)
+            await assistant(session.id, oldUser.id, tmp.path)
+          }
           const u2 = await user(session.id, "second user message")
           const a2 = await assistant(session.id, u2.id, tmp.path)
           await svc.updatePart({
@@ -2999,7 +3037,7 @@ describe("session.compaction.secretary compact", () => {
                   ...st,
                   status: "idle",
                   summary: summaryText,
-                  previousDiffStart: msgs[0]?.info.id,
+                  previousDiffStart: u.id,
                   previousDiffEnd: a.id,
                   newDiffStart: u2.id,
                 }),
@@ -3025,13 +3063,21 @@ describe("session.compaction.secretary compact", () => {
           const textPart = newMsgs[0].parts.find((p): p is MessageV2.TextPart => p.type === "text")
           expect(textPart).toBeDefined()
           if (textPart) {
-            expect(textPart.text).toContain("Latest Summary")
-            expect(textPart.text).toContain("Previous Diff")
-            expect(textPart.text).toContain("New Diff")
-            expect(textPart.text).toContain("## User")
-            expect(textPart.text).toContain("## Assistant")
-            expect(textPart.text).not.toContain('"role"')
-            expect(textPart.text).not.toContain('"content"')
+            const payload = JSON.parse(textPart.text)
+            expect(payload.previous_diff.messages).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({ role: "user" }),
+                expect.objectContaining({ role: "assistant" }),
+              ]),
+            )
+            expect(payload.new_diff.messages).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({ role: "user" }),
+                expect.objectContaining({ role: "assistant" }),
+              ]),
+            )
+            expect(textPart.text).not.toContain("## User")
+            expect(textPart.text).not.toContain("## Assistant")
           }
         } finally {
           await rt.dispose()
@@ -3051,7 +3097,7 @@ describe("session.compaction.secretary compact", () => {
           wide(),
           cfg({
             strategy: "secretary",
-            secretary: { context_token_threshold: 1 },
+            secretary: { context_token_threshold: 100_000 },
           }),
         )
         try {
