@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   compactionControlDescriptions,
   formatStatus,
+  createSecretarySummaryOption,
   secretaryControlDescriptions,
   updateCompactionSettings,
 } from "../../../../src/cli/cmd/tui/component/dialog-compaction-settings"
@@ -91,6 +92,79 @@ describe("DialogCompactionSettings controls", () => {
     resolveUpdate()
     await saved
     expect(events).toEqual(["clear", "update-start", "update-end"])
+  })
+})
+
+describe("secretary summary option", () => {
+  test("opens the current summary through the shared snapshot helper", async () => {
+    const opened: Array<{ summary?: string; editor?: string }> = []
+    const option = createSecretarySummaryOption({
+      summary: "current summary text",
+      renderer: {} as never,
+      toast: { show: () => undefined },
+      editor: "test-editor",
+      openSummary: async (input) => {
+        opened.push({ summary: input.summary, editor: input.editor })
+      },
+    })
+
+    expect(option.title).toBe("View secretary summary")
+    expect(option.description).toBe("current summary text")
+
+    await option.onSelect?.({ clear: () => undefined } as never)
+
+    expect(opened).toEqual([{ summary: "current summary text", editor: "test-editor" }])
+  })
+
+  test("loads a persisted summary when the cache is empty", async () => {
+    const opened: Array<string | undefined> = []
+    const loaded: string[] = []
+    const option = createSecretarySummaryOption({
+      summary: undefined,
+      renderer: {} as never,
+      toast: { show: () => undefined },
+      editor: "test-editor",
+      loadSummary: async () => {
+        loaded.push("called")
+        return "stored summary text"
+      },
+      openSummary: async (input) => {
+        opened.push(input.summary)
+      },
+    })
+
+    await option.onSelect?.({ clear: () => undefined } as never)
+
+    expect(loaded).toEqual(["called"])
+    expect(opened).toEqual(["stored summary text"])
+  })
+
+  test("shows an error toast when the opener rejects", async () => {
+    const messages: string[] = []
+    const option = createSecretarySummaryOption({
+      summary: "current summary text",
+      renderer: {} as never,
+      toast: { show: (input) => messages.push(input.message) },
+      editor: "test-editor",
+      openSummary: async () => {
+        throw new Error("open failed")
+      },
+    })
+
+    await option.onSelect?.({ clear: () => undefined } as never)
+
+    expect(messages).toEqual(["open failed"])
+  })
+
+  test("shows a fallback label when the session has no secretary summary yet", () => {
+    const option = createSecretarySummaryOption({
+      summary: undefined,
+      renderer: {} as never,
+      toast: { show: () => undefined },
+      editor: undefined,
+    })
+
+    expect(option.description).toBe("No summary yet")
   })
 })
 
