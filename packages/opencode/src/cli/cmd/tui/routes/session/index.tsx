@@ -538,7 +538,7 @@ export function Session() {
         aliases: ["autocompact", "secretary"],
       },
       onSelect: (dialog) => {
-        dialog.replace(() => <DialogCompactionSettings />)
+        dialog.replace(() => <DialogCompactionSettings sessionID={route.sessionID} />)
       },
     },
     {

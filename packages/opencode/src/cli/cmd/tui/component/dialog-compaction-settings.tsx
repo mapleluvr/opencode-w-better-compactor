@@ -1,10 +1,13 @@
-import { DialogSelect } from "@tui/ui/dialog-select"
+import { type CliRenderer } from "@opentui/core"
+import { useRenderer } from "@opentui/solid"
+import { DialogSelect, type DialogSelectOption } from "@tui/ui/dialog-select"
 import { DialogPrompt } from "@tui/ui/dialog-prompt"
 import { useDialog, type DialogContext } from "@tui/ui/dialog"
 import { useSync } from "@tui/context/sync"
 import { useSDK } from "@tui/context/sdk"
 import { useToast } from "@tui/ui/toast"
 import { createMemo } from "solid-js"
+import { openSecretarySummarySnapshot, secretarySummaryPreview } from "../util/secretary-status"
 
 const DEFAULT_DIFF_TOKEN_THRESHOLD = 100_000
 const DEFAULT_DIFF_TURN_THRESHOLD = 20
@@ -81,15 +84,60 @@ export function formatStatus(data: {
   return lines
 }
 
-export function DialogCompactionSettings() {
+export function createSecretarySummaryOption(input: {
+  summary?: string
+  loadSummary?: () => Promise<string | undefined>
+  renderer: CliRenderer
+  toast: Pick<ReturnType<typeof useToast>, "show">
+  editor?: string
+  openSummary?: typeof openSecretarySummarySnapshot
+}): DialogSelectOption<string> {
+  return {
+    title: "View secretary summary",
+    value: "summary",
+    description: secretarySummaryPreview(input.summary, 80),
+    onSelect: async () => {
+      await Promise.resolve(input.summary ?? input.loadSummary?.()).then((summary) =>
+        (input.openSummary ?? openSecretarySummarySnapshot)({
+          summary,
+          renderer: input.renderer,
+          toast: input.toast,
+          editor: input.editor,
+        }).catch((err) =>
+          input.toast.show({
+            message: err instanceof Error ? err.message : "Failed to open secretary summary",
+            variant: "error",
+          }),
+        ),
+      )
+    },
+  }
+}
+
+export function DialogCompactionSettings(props: { sessionID: string }) {
   const dialog = useDialog()
   const sync = useSync()
   const sdk = useSDK()
   const toast = useToast()
+  const renderer = useRenderer()
 
   const config = createMemo(() => sync.data.config.compaction ?? {})
   const sec = createMemo(() => config().secretary)
   const secretary = createMemo(() => secretaryControlDescriptions(sec()))
+  const summary = createMemo(() => sync.data.secretary_status[props.sessionID]?.summary)
+  const summaryOption = createMemo(() =>
+    createSecretarySummaryOption({
+      summary: summary(),
+      loadSummary: async () =>
+        sdk.client.session
+          .secretaryStatus({ sessionID: props.sessionID })
+          .then((result) => result.data?.summary)
+          .catch(() => undefined),
+      renderer,
+      toast,
+      editor: process.env.VISUAL || process.env.EDITOR,
+    }),
+  )
 
   const strategy = createMemo(() => config().strategy ?? "classic")
 
@@ -291,6 +339,7 @@ export function DialogCompactionSettings() {
           description: controls().secretaryBar,
           onSelect: toggleSecretaryBar,
         },
+        summaryOption(),
       ]}
     />
   )
