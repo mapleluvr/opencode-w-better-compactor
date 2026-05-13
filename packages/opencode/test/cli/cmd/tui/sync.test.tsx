@@ -55,11 +55,19 @@ function sessionInfo(id: string): Session {
   }
 }
 
-function createFetch() {
+function createFetch(
+  options: {
+    config?: () => Response | Promise<Response>
+    sessionGet?: () => Response | Promise<Response>
+    sessionList?: () => Response | Promise<Response>
+  } = {},
+) {
   const session = [] as URL[]
+  const sessionGet = [] as URL[]
   const fetch = (async (input: RequestInfo | URL) => {
     const url = new URL(input instanceof Request ? input.url : String(input))
     if (url.pathname === "/session") session.push(url)
+    if (url.pathname === "/session/session-1") sessionGet.push(url)
 
     switch (url.pathname) {
       case "/agent":
@@ -69,12 +77,13 @@ function createFetch() {
       case "/formatter":
       case "/lsp":
         return json([])
-      case "/config":
       case "/experimental/resource":
       case "/mcp":
       case "/provider/auth":
       case "/session/status":
         return json({})
+      case "/config":
+        return options.config?.() ?? json({})
       case "/config/providers":
         return json({ providers: {}, default: {} })
       case "/experimental/console":
@@ -85,8 +94,13 @@ function createFetch() {
         return json({ id: "proj_test" })
       case "/provider":
         return json({ all: [], default: {}, connected: [] })
+      case "/session/session-1":
+        return options.sessionGet?.() ?? json(sessionInfo("session-1"))
+      case "/session/session-1/diff":
+      case "/session/session-1/message":
+      case "/session/session-1/todo":
       case "/session":
-        return json([])
+        return options.sessionList?.() ?? json([])
       case "/vcs":
         return json({ branch: "main" })
     }
@@ -94,7 +108,7 @@ function createFetch() {
     throw new Error(`unexpected request: ${url.pathname}`)
   }) as typeof globalThis.fetch
 
-  return { fetch, session }
+  return { fetch, session, sessionGet }
 }
 
 type EventHandler = Parameters<EventSource["subscribe"]>[0]
@@ -121,8 +135,22 @@ function controllableEventSource() {
   }
 }
 
-async function mount(input: { emit?: (handler: EventHandler) => void; events?: EventSource } = {}) {
-  const calls = createFetch()
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+async function mount(input: {
+  emit?: (handler: EventHandler) => void
+  events?: EventSource
+  config?: () => Response | Promise<Response>
+  sessionGet?: () => Response | Promise<Response>
+  sessionList?: () => Response | Promise<Response>
+} = {}) {
+  const calls = createFetch(input)
   let sync!: ReturnType<typeof useSync>
   let kv!: ReturnType<typeof useKV>
   let done!: () => void
@@ -154,7 +182,7 @@ async function mount(input: { emit?: (handler: EventHandler) => void; events?: E
 
   await ready
   await wait(() => sync.status === "complete")
-  return { app, kv, sync, session: calls.session }
+  return { app, kv, sync, session: calls.session, sessionGet: calls.sessionGet }
 }
 
 async function mountRoute(input: { emit?: (handler: Parameters<EventSource["subscribe"]>[0]) => void } = {}) {
@@ -209,7 +237,9 @@ function RouteProbe(props: { onReady: (ctx: { route: ReturnType<typeof useRoute>
 
   createEffect(() => {
     if (route.data.type !== "session") return
-    const newSessionID = sync.data.secretary_status[route.data.sessionID]?.new_session_id
+    const status = sync.data.secretary_status[route.data.sessionID]
+    if (status?.auto_switch === false) return
+    const newSessionID = status?.new_session_id
     if (newSessionID) route.navigate({ type: "session", sessionID: newSessionID })
   })
 
@@ -351,6 +381,234 @@ describe("tui sync", () => {
     }
   })
 
+  test("does not carry fully synced sessions into filtered refresh results", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const { app, sync } = await mount()
+
+    try {
+      await sync.session.sync("session-1")
+      expect(sync.session.get("session-1")?.id).toBe("session-1")
+
+      await sync.session.refresh()
+
+      expect(sync.session.get("session-1")).toBeUndefined()
+    } finally {
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
+  test("keeps a retained session across instance disposal reload", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const events = controllableEventSource()
+    const { app, sync, session } = await mount({ events: events.source })
+    const release = sync.session.retain("session-1")
+
+    try {
+      await sync.session.sync("session-1")
+      expect(sync.session.get("session-1")?.id).toBe("session-1")
+
+      const previousSessionRequests = session.length
+      await events.emit({
+        directory,
+        payload: {
+          id: "evt_disposed_1",
+          type: "server.instance.disposed",
+          properties: {
+            directory,
+          },
+        },
+      })
+
+      await wait(() => session.length > previousSessionRequests)
+      expect(sync.session.get("session-1")?.id).toBe("session-1")
+    } finally {
+      release()
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
+  test("does not preserve a deleted retained session during refresh", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const events = controllableEventSource()
+    const { app, sync } = await mount({ events: events.source })
+    const release = sync.session.retain("session-1")
+
+    try {
+      await sync.session.sync("session-1")
+      expect(sync.session.get("session-1")?.id).toBe("session-1")
+
+      await events.emit({
+        directory,
+        payload: {
+          id: "evt_deleted_1",
+          type: "session.deleted",
+          properties: {
+            sessionID: "session-1",
+            info: sessionInfo("session-1"),
+          },
+        },
+      })
+
+      await sync.session.refresh()
+
+      expect(sync.session.get("session-1")).toBeUndefined()
+    } finally {
+      release()
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
+  test("explicit sync rehydrates a dropped fully synced session", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const { app, sync, sessionGet } = await mount()
+
+    try {
+      await sync.session.sync("session-1")
+      const previousSessionGets = sessionGet.length
+      sync.set("session", [])
+
+      await sync.session.sync("session-1")
+
+      expect(sessionGet.length).toBeGreaterThan(previousSessionGets)
+      expect(sync.session.get("session-1")?.id).toBe("session-1")
+    } finally {
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
+  test("does not commit a session sync that completes after deletion", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const pendingSession = deferred<Response>()
+    const events = controllableEventSource()
+    const { app, sync, sessionGet } = await mount({
+      events: events.source,
+      sessionGet: () => pendingSession.promise,
+    })
+
+    try {
+      sync.set("session", [sessionInfo("session-1")])
+      expect(sync.session.get("session-1")?.id).toBe("session-1")
+      const synced = sync.session.sync("session-1")
+      await wait(() => sessionGet.length === 1)
+      await events.emit({
+        directory,
+        payload: {
+          id: "evt_deleted_during_sync_1",
+          type: "session.deleted",
+          properties: {
+            sessionID: "session-1",
+            info: sessionInfo("session-1"),
+          },
+        },
+      })
+      await wait(() => sync.session.get("session-1") === undefined)
+
+      pendingSession.resolve(json(sessionInfo("session-1")))
+      await synced
+
+      expect(sessionGet.length).toBe(1)
+      expect(sync.session.get("session-1")).toBeUndefined()
+    } finally {
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
+  test("does not commit a bootstrap session list that completes after deletion", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const pendingConfig = deferred<Response>()
+    const events = controllableEventSource()
+    let configCalls = 0
+    const { app, sync, session } = await mount({
+      events: events.source,
+      config: () => {
+        configCalls += 1
+        if (configCalls === 1) return json({})
+        return pendingConfig.promise
+      },
+      sessionList: () => json([sessionInfo("session-1")]),
+    })
+    const release = sync.session.retain("session-1")
+
+    try {
+      expect(sync.session.get("session-1")?.id).toBe("session-1")
+      const previousSessionRequests = session.length
+      await events.emit({
+        directory,
+        payload: {
+          id: "evt_disposed_before_delete_1",
+          type: "server.instance.disposed",
+          properties: {
+            directory,
+          },
+        },
+      })
+      await wait(() => session.length > previousSessionRequests)
+
+      await events.emit({
+        directory,
+        payload: {
+          id: "evt_deleted_during_bootstrap_1",
+          type: "session.deleted",
+          properties: {
+            sessionID: "session-1",
+            info: sessionInfo("session-1"),
+          },
+        },
+      })
+      await wait(() => sync.session.get("session-1") === undefined)
+
+      pendingConfig.resolve(json({}))
+      await Bun.sleep(20)
+
+      expect(sync.session.get("session-1")).toBeUndefined()
+    } finally {
+      release()
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
+  test("dedupes in-flight session sync requests", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const { app, sync, sessionGet } = await mount()
+
+    try {
+      await Promise.all([sync.session.sync("session-1"), sync.session.sync("session-1")])
+
+      expect(sessionGet.length).toBe(1)
+      expect(sync.session.get("session-1")?.id).toBe("session-1")
+    } finally {
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
   test("secretary switched status navigates to the new session", async () => {
     const previous = Global.Path.state
     await using tmp = await tmpdir()
@@ -379,6 +637,41 @@ describe("tui sync", () => {
     try {
       await wait(() => route.data.type === "session" && route.data.sessionID === "session-2")
       expect(route.data).toEqual({ type: "session", sessionID: "session-2" })
+    } finally {
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
+  test("secretary switched status with auto_switch false does not navigate", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+    const { app, route } = await mountRoute({
+      emit: (handler) => {
+        handler({
+          directory,
+          payload: {
+            id: "evt_nav_subagent_1",
+            type: "session.next.secretary.compact.switched",
+            properties: {
+              sessionID: "session-1",
+              timestamp: 2,
+              status: "idle",
+              retry_count: 0,
+              payload_degraded: false,
+              new_session_id: "session-2",
+              auto_switch: false,
+            },
+          },
+        })
+      },
+    })
+
+    try {
+      await Bun.sleep(50)
+      expect(route.data).toEqual({ type: "session", sessionID: "session-1" })
     } finally {
       app.renderer.destroy()
       Global.Path.state = previous

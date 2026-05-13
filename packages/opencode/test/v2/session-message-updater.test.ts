@@ -265,6 +265,7 @@ test("secretary status events do not reduce to classic compaction messages", () 
         status: "idle",
         payload_degraded: false,
         new_session_id: SessionID.make("new-session"),
+        auto_switch: false,
       },
     },
   ] satisfies SessionEvent.Event[]) {

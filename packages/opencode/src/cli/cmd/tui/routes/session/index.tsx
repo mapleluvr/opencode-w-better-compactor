@@ -7,6 +7,7 @@ import {
   For,
   Match,
   on,
+  onCleanup,
   onMount,
   Show,
   Switch,
@@ -189,6 +190,8 @@ export function Session() {
 
   createEffect(() => {
     const sessionID = route.sessionID
+    const release = sync.session.retain(sessionID)
+    onCleanup(release)
     void (async () => {
       const previousWorkspace = project.workspace.current()
       const result = await sdk.client.session.get({ sessionID }, { throwOnError: true })
@@ -1093,7 +1096,9 @@ export function Session() {
   createEffect(() => {
     if (dialog.stack.length > 0) return
     const sessionID = route.sessionID
-    const newSessionID = sync.data.secretary_status[sessionID]?.new_session_id
+    const status = sync.data.secretary_status[sessionID]
+    if (status?.auto_switch === false) return
+    const newSessionID = status?.new_session_id
     if (newSessionID && route.sessionID === sessionID) {
       navigate({ type: "session", sessionID: newSessionID })
     }

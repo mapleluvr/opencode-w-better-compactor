@@ -44,6 +44,7 @@ type SecretaryStatusInfo = {
   last_error?: string
   payload_degraded?: boolean
   new_session_id?: string
+  auto_switch?: boolean
   last_success_at?: number
   diff_token_count?: number
   diff_turn_count?: number
@@ -138,7 +139,22 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const kv = useKV()
 
     const fullSyncedSessions = new Set<string>()
+    const retainedSessions = new Map<string, number>()
+    const syncTasks = new Map<string, Promise<void>>()
+    const deletedSessions = new Set<string>()
     let syncedWorkspace = project.workspace.current()
+
+    function preserveRetainedSessions(sessions: Session[]) {
+      const filtered = sessions.filter((x) => !deletedSessions.has(x.id))
+      const included = new Set(filtered.map((x) => x.id))
+      return filtered
+        .concat(store.session.filter((x) => retainedSessions.has(x.id) && !included.has(x.id) && !deletedSessions.has(x.id)))
+        .toSorted((a, b) => a.id.localeCompare(b.id))
+    }
+
+    function commitSessions(sessions: Session[]) {
+      setStore("session", reconcile(sessions.filter((x) => !deletedSessions.has(x.id))))
+    }
 
     function sessionListQuery(): { scope?: "project"; path?: string } {
       if (!kv.get("session_directory_filter_enabled", true)) return { scope: "project" }
@@ -153,7 +169,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     function listSessions() {
       return sdk.client.session
         .list({ start: Date.now() - 30 * 24 * 60 * 60 * 1000, ...sessionListQuery() })
-        .then((x) => (x.data ?? []).toSorted((a, b) => a.id.localeCompare(b.id)))
+        .then((x) => preserveRetainedSessions(x.data ?? []))
     }
 
     event.subscribe((event) => {
@@ -245,6 +261,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           break
 
         case "session.deleted": {
+          deletedSessions.add(event.properties.info.id)
+          fullSyncedSessions.delete(event.properties.info.id)
+          retainedSessions.delete(event.properties.info.id)
           const result = Binary.search(store.session, event.properties.info.id, (s) => s.id)
           if (result.found) {
             setStore(
@@ -258,6 +277,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         }
         case "session.created":
         case "session.updated": {
+          if (deletedSessions.has(event.properties.info.id)) break
           const result = Binary.search(store.session, event.properties.info.id, (s) => s.id)
           if (result.found) {
             setStore("session", result.index, reconcile(event.properties.info))
@@ -470,7 +490,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               setStore("console_state", reconcile(consoleState))
               setStore("agent", reconcile(agents))
               setStore("config", reconcile(config))
-              if (sessions !== undefined) setStore("session", reconcile(sessions))
+              if (sessions !== undefined) commitSessions(sessions)
             })
           })
         })
@@ -478,7 +498,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           if (store.status !== "complete") setStore("status", "partial")
           // non-blocking
           void Promise.all([
-            ...(args.continue ? [] : [sessionListPromise.then((sessions) => setStore("session", reconcile(sessions)))]),
+            ...(args.continue ? [] : [sessionListPromise.then(commitSessions)]),
             consoleStatePromise.then((consoleState) => setStore("console_state", reconcile(consoleState))),
             sdk.client.command.list({ workspace }).then((x) => setStore("command", reconcile(x.data ?? []))),
             sdk.client.lsp.status({ workspace }).then((x) => setStore("lsp", reconcile(x.data ?? []))),
@@ -538,8 +558,19 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           return sessionListQuery()
         },
         async refresh() {
-          const list = await listSessions()
-          setStore("session", reconcile(list))
+          commitSessions(await listSessions())
+        },
+        retain(sessionID: string) {
+          retainedSessions.set(sessionID, (retainedSessions.get(sessionID) ?? 0) + 1)
+          return () => {
+            const count = retainedSessions.get(sessionID)
+            if (count === undefined) return
+            if (count <= 1) {
+              retainedSessions.delete(sessionID)
+              return
+            }
+            retainedSessions.set(sessionID, count - 1)
+          }
         },
         status(sessionID: string) {
           const session = result.session.get(sessionID)
@@ -552,27 +583,34 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           return last.time.completed ? "idle" : "working"
         },
         async sync(sessionID: string) {
-          if (fullSyncedSessions.has(sessionID)) return
-          const [session, messages, todo, diff] = await Promise.all([
-            sdk.client.session.get({ sessionID }, { throwOnError: true }),
-            sdk.client.session.messages({ sessionID, limit: 100 }),
-            sdk.client.session.todo({ sessionID }),
-            sdk.client.session.diff({ sessionID }),
-          ])
-          setStore(
-            produce((draft) => {
-              const match = Binary.search(draft.session, sessionID, (s) => s.id)
-              if (match.found) draft.session[match.index] = session.data!
-              if (!match.found) draft.session.splice(match.index, 0, session.data!)
-              draft.todo[sessionID] = todo.data ?? []
-              draft.message[sessionID] = messages.data!.map((x) => x.info)
-              for (const message of messages.data!) {
-                draft.part[message.info.id] = message.parts
-              }
-              draft.session_diff[sessionID] = diff.data ?? []
-            }),
-          )
-          fullSyncedSessions.add(sessionID)
+          if (fullSyncedSessions.has(sessionID) && result.session.get(sessionID)) return
+          const existing = syncTasks.get(sessionID)
+          if (existing) return existing
+          const task = (async () => {
+            const [session, messages, todo, diff] = await Promise.all([
+              sdk.client.session.get({ sessionID }, { throwOnError: true }),
+              sdk.client.session.messages({ sessionID, limit: 100 }),
+              sdk.client.session.todo({ sessionID }),
+              sdk.client.session.diff({ sessionID }),
+            ])
+            if (deletedSessions.has(sessionID)) return
+            setStore(
+              produce((draft) => {
+                const match = Binary.search(draft.session, sessionID, (s) => s.id)
+                if (match.found) draft.session[match.index] = session.data!
+                if (!match.found) draft.session.splice(match.index, 0, session.data!)
+                draft.todo[sessionID] = todo.data ?? []
+                draft.message[sessionID] = messages.data!.map((x) => x.info)
+                for (const message of messages.data!) {
+                  draft.part[message.info.id] = message.parts
+                }
+                draft.session_diff[sessionID] = diff.data ?? []
+              }),
+            )
+            fullSyncedSessions.add(sessionID)
+          })().finally(() => syncTasks.delete(sessionID))
+          syncTasks.set(sessionID, task)
+          return task
         },
       },
       bootstrap,

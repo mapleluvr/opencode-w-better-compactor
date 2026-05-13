@@ -448,6 +448,7 @@ export namespace Secretary {
       schema: {
         ...SecretaryBase,
         new_session_id: SessionID,
+        auto_switch: Schema.Boolean.pipe(Schema.optional),
       },
     })
     export type Switched = Schema.Schema.Type<typeof Switched>

@@ -48,28 +48,33 @@ function formatModelMessagesAsText(msgs: Array<{ role: string; content: unknown 
     .join("\n\n")
 }
 
-function structuredCompactPayload(input: {
-  summary: string
-  previousMessages: ModelMessage[]
-  newMessages: ModelMessage[]
-  previousTrimmed: boolean
-}) {
-  return JSON.stringify(
-    {
-      type: "secretary_compaction_payload",
-      version: 1,
-      latest_summary: input.summary,
-      previous_diff: {
-        trimmed: input.previousTrimmed,
-        messages: input.previousTrimmed ? [] : input.previousMessages,
-      },
-      new_diff: {
-        messages: input.newMessages,
-      },
-    },
-    null,
-    2,
-  )
+function compactMessageText(msg: ModelMessage) {
+  const content = Array.isArray(msg.content)
+    ? msg.content
+        .map((part) => {
+          if (typeof part === "string") return part
+          if (typeof part === "object" && part !== null && "text" in part && typeof part.text === "string") return part.text
+          if (typeof part === "object" && part !== null && "type" in part && part.type === "file") return "[Attached file]"
+          return ""
+        })
+        .filter(Boolean)
+        .join("\n\n")
+    : typeof msg.content === "string"
+      ? msg.content
+      : String(msg.content ?? "")
+  return content.trim()
+}
+
+function formatCompactMessages(input: { title: string; messages: ModelMessage[]; trimmed?: boolean }) {
+  if (input.trimmed) return `${input.title}\nPrevious Diff trimmed because the compact payload exceeded the target context.`
+  const text = input.messages
+    .map((msg) => {
+      const role = msg.role === "assistant" ? "Assistant" : msg.role === "system" ? "System" : "User"
+      return `## ${role}\n${compactMessageText(msg)}`
+    })
+    .filter((text) => text.trim() !== "")
+    .join("\n\n")
+  return text ? `${input.title}\n${text}` : `${input.title}\n(none)`
 }
 
 export interface Interface {
@@ -538,24 +543,21 @@ export const layer = Layer.effect(
         ? yield* MessageV2.toModelMessagesEffect(newMessages, input.model, { stripMedia: true })
         : []
 
-      let fullPayload = structuredCompactPayload({
-        summary: summaryText,
-        previousMessages: previousModelMsgs,
-        newMessages: newModelMsgs,
-        previousTrimmed: false,
-      })
+      const continuation = (previousTrimmed: boolean) => [
+        `Latest Summary\n${summaryText}`,
+        "I understand the latest summary and will continue from the compacted context.",
+        formatCompactMessages({ title: "Previous Diff", messages: previousModelMsgs, trimmed: previousTrimmed }),
+        formatCompactMessages({ title: "New Diff", messages: newModelMsgs }),
+      ]
+
+      let continuationMessages = continuation(false)
 
       const targetContext = contextThreshold ?? usable({ cfg, model: input.model })
-      const payloadEstimate = Token.estimate(fullPayload)
+      const payloadEstimate = Token.estimate(continuationMessages.join("\n\n"))
       let payloadDegraded = currentState.payloadDegraded
 
       if (payloadEstimate > targetContext) {
-        fullPayload = structuredCompactPayload({
-          summary: summaryText,
-          previousMessages: previousModelMsgs,
-          newMessages: newModelMsgs,
-          previousTrimmed: true,
-        })
+        continuationMessages = continuation(true)
         payloadDegraded = true
 
         EventV2.run(SessionEvent.Secretary.Compact.Degraded.Sync, {
@@ -592,7 +594,9 @@ export const layer = Layer.effect(
         })
       }
 
+      const parentSession = yield* session.get(input.sessionID).pipe(Effect.option)
       const newSession = yield* session.create({
+        parentID: parentSession._tag === "Some" ? parentSession.value.parentID : undefined,
         agent: input.user.agent,
         model: {
           id: input.user.model.modelID,
@@ -615,7 +619,7 @@ export const layer = Layer.effect(
         messageID: userMsg.id,
         sessionID: newSession.id,
         type: "text",
-        text: fullPayload,
+        text: continuationMessages[0]!,
         synthetic: true,
         metadata: { compaction_continue: true },
         time: {
@@ -624,6 +628,66 @@ export const layer = Layer.effect(
         },
       })
 
+      const ackMsg = yield* session.updateMessage({
+        id: MessageID.ascending(),
+        role: "assistant",
+        parentID: userMsg.id,
+        sessionID: newSession.id,
+        mode: input.user.agent,
+        agent: input.user.agent,
+        variant: input.user.model.variant,
+        path: { cwd: newSession.directory, root: newSession.directory },
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        modelID: input.model.id,
+        providerID: input.model.providerID,
+        time: { created: Date.now(), completed: Date.now() },
+        finish: "stop",
+      })
+
+      yield* session.updatePart({
+        id: PartID.ascending(),
+        messageID: ackMsg.id,
+        sessionID: newSession.id,
+        type: "text",
+        text: continuationMessages[1]!,
+        synthetic: true,
+        metadata: { compaction_continue: true },
+        time: {
+          start: Date.now(),
+          end: Date.now(),
+        },
+      })
+
+      yield* Effect.forEach(
+        continuationMessages.slice(2),
+        (text) =>
+          Effect.gen(function* () {
+            const msg = yield* session.updateMessage({
+              id: MessageID.ascending(),
+              role: "user" as const,
+              sessionID: newSession.id,
+              agent: input.user.agent,
+              model: input.user.model,
+              time: { created: Date.now() },
+            })
+            yield* session.updatePart({
+              id: PartID.ascending(),
+              messageID: msg.id,
+              sessionID: newSession.id,
+              type: "text" as const,
+              text,
+              synthetic: true,
+              metadata: { compaction_continue: true },
+              time: {
+                start: Date.now(),
+                end: Date.now(),
+              },
+            })
+          }),
+        { discard: true },
+      )
+
       EventV2.run(SessionEvent.Secretary.Compact.Switched.Sync, {
         sessionID: input.sessionID,
         timestamp: DateTime.makeUnsafe(Date.now()),
@@ -631,6 +695,7 @@ export const layer = Layer.effect(
         summary: currentState.summary,
         payload_degraded: payloadDegraded,
         new_session_id: newSession.id,
+        auto_switch: !newSession.parentID,
         summary_up_to: currentState.summaryUpTo,
         previous_diff_start: currentState.previousDiffStart,
         previous_diff_end: currentState.previousDiffEnd,

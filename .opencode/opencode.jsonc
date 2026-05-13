@@ -6,6 +6,18 @@
       "packages/opencode/migration/*": "deny",
     },
   },
+  "compaction": {
+    "auto": true,
+    "strategy": "secretary",
+    "secretary": {
+      "model": "opencode-go/deepseek-v4-flash",
+      "diff_token_threshold": 20000,
+      "diff_turn_threshold": 12,
+      "context_token_threshold": 60000,
+      "compact_wait_timeout": 100000
+    },
+    "secretary_bar": "detailed"
+  },
   "mcp": {},
   "tools": {
     "github-triage": false,

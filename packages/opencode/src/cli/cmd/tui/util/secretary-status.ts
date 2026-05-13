@@ -37,7 +37,7 @@ type SecretaryStatus = Pick<SecretaryStatusResponse, "status"> &
       | "running_snapshot_end"
     >
   > &
-  Partial<Pick<EventSessionNextSecretaryCompactSwitched["properties"], "new_session_id">>
+  Partial<Pick<EventSessionNextSecretaryCompactSwitched["properties"], "new_session_id" | "auto_switch">>
 
 type SecretaryEvent =
   | EventSessionNextSecretaryStarted

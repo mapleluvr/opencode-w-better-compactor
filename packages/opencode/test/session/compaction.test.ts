@@ -198,6 +198,13 @@ async function lastCompactionPart(sessionID: SessionID) {
     ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction")
 }
 
+function textOf(message: MessageV2.WithParts) {
+  return message.parts
+    .filter((part): part is MessageV2.TextPart => part.type === "text")
+    .map((part) => part.text)
+    .join("\n\n")
+}
+
 function fake(
   input: Parameters<SessionProcessorModule.SessionProcessor.Interface["create"]>[0],
   result: "continue" | "compact",
@@ -2723,33 +2730,23 @@ describe("session.compaction.secretary compact", () => {
           if (result.type !== "switched") return
 
           const newMsgs = await svc.messages({ sessionID: result.sessionID })
-          expect(newMsgs).toHaveLength(1)
-          expect(newMsgs[0].info.role).toBe("user")
-          const textPart = newMsgs[0].parts.find((p): p is MessageV2.TextPart => p.type === "text")
-          expect(textPart).toBeDefined()
-          if (textPart) {
-            const payload = JSON.parse(textPart.text)
-            expect(payload).toMatchObject({
-              type: "secretary_compaction_payload",
-              version: 1,
-              latest_summary: summaryText,
-              previous_diff: { trimmed: false },
-            })
-            expect(payload.previous_diff.messages).toEqual(
-              expect.arrayContaining([
-                expect.objectContaining({ role: "user" }),
-                expect.objectContaining({ role: "assistant" }),
-              ]),
-            )
-            expect(payload.new_diff.messages).toEqual(
-              expect.arrayContaining([
-                expect.objectContaining({ role: "user" }),
-                expect.objectContaining({ role: "assistant" }),
-              ]),
-            )
-            expect(textPart.synthetic).toBe(true)
-            expect(textPart.metadata).toEqual({ compaction_continue: true })
-          }
+          expect(newMsgs.map((msg) => msg.info.role)).toEqual(["user", "assistant", "user", "user"])
+          expect(textOf(newMsgs[0])).toContain("Latest Summary")
+          expect(textOf(newMsgs[0])).toContain(summaryText)
+          expect(textOf(newMsgs[1])).toContain("I understand the latest summary")
+          expect(textOf(newMsgs[2])).toContain("Previous Diff")
+          expect(textOf(newMsgs[2])).toContain("hello world")
+          expect(textOf(newMsgs[2])).toContain("assistant response")
+          expect(textOf(newMsgs[3])).toContain("New Diff")
+          expect(textOf(newMsgs[3])).toContain("second user message")
+          expect(textOf(newMsgs[3])).toContain("another assistant response")
+          expect(newMsgs.flatMap((msg) => msg.parts).every((part) => part.type !== "text" || part.synthetic)).toBe(true)
+          expect(
+            newMsgs
+              .flatMap((msg) => msg.parts)
+              .filter((part): part is MessageV2.TextPart => part.type === "text")
+              .every((part) => part.metadata?.compaction_continue === true),
+          ).toBe(true)
         } finally {
           await rt.dispose()
         }
@@ -2816,15 +2813,11 @@ describe("session.compaction.secretary compact", () => {
           if (result.type !== "switched") return
 
           const newMsgs = await svc.messages({ sessionID: result.sessionID })
-          const textPart = newMsgs[0].parts.find((p): p is MessageV2.TextPart => p.type === "text")
-          expect(textPart).toBeDefined()
-          if (textPart) {
-            const payload = JSON.parse(textPart.text)
-            expect(payload.latest_summary).toBe("short summary")
-            expect(payload.previous_diff.trimmed).toBe(true)
-            expect(payload.previous_diff.messages).toEqual([])
-            expect(payload.new_diff.messages.length).toBeGreaterThan(0)
-          }
+          const continuationText = newMsgs.map(textOf).join("\n")
+          expect(textOf(newMsgs[0])).toContain("short summary")
+          expect(continuationText).toContain("Previous Diff trimmed")
+          expect(continuationText).toContain("second message")
+          expect(continuationText).not.toContain("big message")
 
           const state = await SecretaryState.Service.use((s) => s.get(session.id)).pipe(
             Effect.provide(SecretaryState.defaultLayer),
@@ -2982,7 +2975,7 @@ describe("session.compaction.secretary compact", () => {
     })
   })
 
-  test("compact payload stores Previous and New Diff as structured message arrays", async () => {
+  test("compact payload stores Previous and New Diff as separate continuation messages", async () => {
     await using tmp = await tmpdir()
     await WithInstance.provide({
       directory: tmp.path,
@@ -3060,25 +3053,14 @@ describe("session.compaction.secretary compact", () => {
           if (result.type !== "switched") return
 
           const newMsgs = await svc.messages({ sessionID: result.sessionID })
-          const textPart = newMsgs[0].parts.find((p): p is MessageV2.TextPart => p.type === "text")
-          expect(textPart).toBeDefined()
-          if (textPart) {
-            const payload = JSON.parse(textPart.text)
-            expect(payload.previous_diff.messages).toEqual(
-              expect.arrayContaining([
-                expect.objectContaining({ role: "user" }),
-                expect.objectContaining({ role: "assistant" }),
-              ]),
-            )
-            expect(payload.new_diff.messages).toEqual(
-              expect.arrayContaining([
-                expect.objectContaining({ role: "user" }),
-                expect.objectContaining({ role: "assistant" }),
-              ]),
-            )
-            expect(textPart.text).not.toContain("## User")
-            expect(textPart.text).not.toContain("## Assistant")
-          }
+          expect(newMsgs.map((msg) => msg.info.role)).toEqual(["user", "assistant", "user", "user"])
+          expect(textOf(newMsgs[2])).toContain("Previous Diff")
+          expect(textOf(newMsgs[2])).toContain("hello world")
+          expect(textOf(newMsgs[2])).toContain("assistant response")
+          expect(textOf(newMsgs[3])).toContain("New Diff")
+          expect(textOf(newMsgs[3])).toContain("second user message")
+          expect(textOf(newMsgs[3])).toContain("another assistant response")
+          expect(newMsgs.map(textOf).join("\n")).not.toContain("secretary_compaction_payload")
         } finally {
           await rt.dispose()
         }
@@ -3233,11 +3215,69 @@ describe("session.compaction.secretary compact", () => {
           expect(oldMsgs).toHaveLength(4)
 
           const newMsgs = await svc.messages({ sessionID: result.sessionID })
-          expect(newMsgs).toHaveLength(1)
+          expect(newMsgs.length).toBeGreaterThan(1)
           expect(newMsgs[0].info.role).toBe("user")
-          expect(
-            newMsgs[0].parts.some((p) => p.type === "text" && p.text.includes("compact summary")),
-          ).toBe(true)
+          expect(newMsgs.map(textOf).join("\n")).toContain("compact summary")
+        } finally {
+          await rt.dispose()
+        }
+      },
+    })
+  })
+
+  test("compacted child session keeps parent and marks switch as non-navigation", async () => {
+    await using tmp = await tmpdir()
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const stub = llm()
+        const rt = secretaryRuntime(
+          stub,
+          wide(),
+          cfg({
+            strategy: "secretary",
+            secretary: { context_token_threshold: 1 },
+          }),
+        )
+        try {
+          const parent = await svc.create({})
+          const session = await svc.create({ parentID: parent.id })
+          const u = await user(session.id, "subagent work")
+          const a = await assistant(session.id, u.id, tmp.path)
+          const msgs = await svc.messages({ sessionID: session.id })
+
+          await runState(
+            SecretaryState.Service.use((s) =>
+              Effect.gen(function* () {
+                yield* s.getOrInit({ sessionID: session.id, messages: msgs })
+                return yield* s.update({
+                  sessionID: session.id,
+                  update: (st) => ({
+                    ...st,
+                    status: "idle",
+                    summary: "subagent compact summary",
+                    previousDiffStart: u.id,
+                    previousDiffEnd: a.id,
+                  }),
+                })
+              }),
+            ),
+          )
+
+          const result = await rt.runPromise(
+            SecretaryCompaction.Service.use((svc) =>
+              svc.beforeModelSend({
+                sessionID: session.id,
+                messages: msgs,
+                user: u,
+                model: createModel({ context: 100_000, output: 32_000 }),
+              }),
+            ),
+          )
+
+          expect(result.type).toBe("switched")
+          if (result.type !== "switched") return
+          expect((await svc.get(result.sessionID)).parentID).toBe(parent.id)
         } finally {
           await rt.dispose()
         }
